@@ -55,7 +55,7 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 | **Verified boot chain** | Shielded VM (Secure Boot + TPM) | VM integrity verified at every boot; tampering detected immediately |
 | **Multi-layer authentication** | Defense in Depth | External token → mTLS tunnel → internal token; three layers, one compromise isn't enough |
 | **Assume breach posture** | Zero Trust Architecture | No implicit trust; every request validated regardless of origin |
-| **Data stays yours** | Data Sovereignty | Prompts and responses never leave your infrastructure |
+| **Data stays yours** | Your Cloud Account | Prompts and responses never leave your infrastructure |
 | **Nothing recorded** | Zero Data Logging | No prompts, responses, or telemetry stored anywhere |
 | **Tamper-proof deployments** | Immutable Infrastructure | No configuration drift; every deploy is identical |
 | **Binary tampering detection** | File Integrity Monitoring (FIM) | Critical binaries checksummed every 5 minutes; tampering triggers alerts |
