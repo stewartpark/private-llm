@@ -32,7 +32,7 @@
 
 ---
 
-## Finally Use AI on What Actually Matters
+## Bring AI to Your Most Sensitive Data
 
 With Private LLM, you can safely process:
 
