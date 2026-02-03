@@ -268,7 +268,7 @@ func PrivateLlmProxy(w http.ResponseWriter, r *http.Request) {
 
 		// If we get 502, Caddy is up but Ollama isn't ready - retry
 		if resp.StatusCode == http.StatusBadGateway {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			log.Printf("[proxy] received 502 (attempt %d/%d), Ollama not ready, retrying...", attempt+1, maxRetries)
 			if attempt < maxRetries-1 {
 				time.Sleep(5 * time.Second)
@@ -296,7 +296,7 @@ func PrivateLlmProxy(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		log.Printf("[proxy] ResponseWriter doesn't support flushing")
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 		return
 	}
 
@@ -514,7 +514,7 @@ func waitForOllama(ctx context.Context, ip string) error {
 		req.Header.Set("Authorization", "Bearer "+os.Getenv("INTERNAL_TOKEN"))
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			log.Printf("[waitForOllama] server responding after %d attempts (status=%d)", i+1, resp.StatusCode)
 			return nil // Any HTTP response means server is up
 		}
