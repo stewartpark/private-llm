@@ -81,26 +81,37 @@ The API is OpenAI-compatible — use any OpenAI client library with `$LLM_PROXY_
 
 ## Architecture
 
+### Defense in Depth
+
 ```mermaid
-flowchart TB
-    App["📱 Your Application"]
+flowchart LR
+    App["📱 Request"] -->|"① API Token"| Proxy["☁️ Proxy<br/><i>validates token</i>"]
+    Proxy -->|"② mTLS 4096-bit"| VM["🔒 Shielded VM<br/><i>③ internal auth</i>"]
+    VM --> Response["✅ Response<br/><i>never logged</i>"]
+```
 
-    App -->|"① External API Token"| Proxy
+### Scale to Zero
 
-    subgraph Proxy["☁️ Cloud Functions (Proxy)"]
-        P1["Validates your token"]
-        P2["Establishes mTLS tunnel"]
-    end
+```mermaid
+flowchart LR
+    Request["📱 Request"] --> Proxy
+    Proxy -->|"VM off?"| Start["Start VM"] --> VM
+    Proxy -->|"VM on"| VM["🖥️ GPU VM"]
+    VM --> Response["✅ Response"]
 
-    Proxy -->|"② mTLS (TLS 1.3, 4096-bit RSA)"| VM
+    Scheduler["⏰ Every x min"] --> Check{"Idle?"}
+    Check -->|Yes| Stop["💤 Stop VM<br/><i>$0 cost</i>"]
+    Check -->|No| Keep["Keep running"]
+```
 
-    subgraph VM["🔒 Shielded VM (Spot GPU)"]
-        V1["Validates mTLS cert"]
-        V2["③ Internal token auth"]
-        V3["HSM-encrypted secrets"]
-    end
+### Secret Rotation
 
-    VM --> Response["✅ Your Response<br/><i>never logged, never stored</i>"]
+```mermaid
+flowchart LR
+    Scheduler["⏰ Every 2 hrs"] --> Check{"Cert expiring<br/>in < 24 hrs?"}
+    Check -->|Yes| Rotate["🔄 Generate new<br/>mTLS certs + tokens"]
+    Rotate --> Secrets["🔐 Secret Manager"]
+    Check -->|No| Skip["Skip"]
 ```
 
 ## Cost
