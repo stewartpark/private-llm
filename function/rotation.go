@@ -117,7 +117,7 @@ func RotationHandler(w http.ResponseWriter, r *http.Request) {
 		if !eligible {
 			log.Printf("[rotation] Not eligible for rotation: %s", reason)
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": "skipped",
 				"reason": reason,
 			})
@@ -260,7 +260,7 @@ func handleCARotation(ctx context.Context, w http.ResponseWriter, dryRun bool) e
 	if dryRun {
 		log.Printf("[rotation] Dry run mode - would rotate CA and regenerate all certificates")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "dry_run",
 			"message": "Would rotate CA and regenerate all certificates",
 			"credentials": map[string]string{
@@ -295,7 +295,7 @@ func handleCARotation(ctx context.Context, w http.ResponseWriter, dryRun bool) e
 
 	log.Printf("[rotation] CA rotation complete - all certificates regenerated")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "CA rotated - all certificates regenerated",
 		"note":    "Restart VM to load new server certificates",
@@ -470,7 +470,7 @@ func handleRotation(ctx context.Context, w http.ResponseWriter, dryRun bool) err
 	if dryRun {
 		log.Printf("[rotation] Dry run mode - would rotate 5 secrets")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "dry_run",
 			"message": "Would rotate server cert, client cert, and internal token",
 			"credentials": map[string]string{
@@ -507,7 +507,7 @@ func handleRotation(ctx context.Context, w http.ResponseWriter, dryRun bool) err
 
 	log.Printf("[rotation] Rotation complete")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "Credentials rotated successfully",
 		"credentials": map[string]string{
