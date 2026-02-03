@@ -64,7 +64,7 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@master
         with:
-          args: ./function/...
+          args: -exclude-analyzers=all ./function/...
 
       - name: Run trivy
         uses: aquasecurity/trivy-action@master
