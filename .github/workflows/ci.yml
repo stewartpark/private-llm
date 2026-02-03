@@ -1,14 +1,14 @@
-name: GCP CI - Pre-Deployment Validation
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  terraform-format-check:
-    name: Check Terraform Formatting
+  terraform:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,15 +18,12 @@ jobs:
         with:
           terraform_version: 1.8.x
 
-      - name: Verify formatting
-        run: |
-          terraform fmt -check -recursive . || exit 1
-          echo "✓ All Terraform files are formatted"
+      - name: Check formatting
+        run: terraform fmt -check -recursive .
 
-  go-validity:
-    name: Go Build & Tests
+  go:
+    name: Build & Test
     runs-on: ubuntu-latest
-    needs: [terraform-format-check]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,72 +33,46 @@ jobs:
           go-version: '1.23.x'
           cache: true
 
-      - name: Build Go binary
+      - name: Build
         working-directory: ./function
-        run: |
-          go build -o /tmp/llm-proxy .
-          echo "✓ Build successful"
+        run: go build -o /tmp/llm-proxy .
 
-      - name: Run tests
+      - name: Test
         working-directory: ./function
-        run: |
-          go test -v ./... -timeout 10m
-          echo "✓ Tests passed"
+        run: go test -v ./... -timeout 10m
 
-  code-quality:
-    name: Lint & Security Scan
-    runs-on: ubuntu-latest
-    needs: [go-validity]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23.x'
-          cache: true
-
-      - name: Run golangci-lint
+      - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: ./function
           args: --timeout=5m
 
-      - name: Check for secrets
-        run: |
-          echo "🔍 Checking git diff for secrets..."
-          git diff --cached --name-only | grep -E '\.tf$|\.go$' || true
-        continue-on-error: true
-
-  pr-summary:
-    name: PR Summary
+  security:
+    name: Security
     runs-on: ubuntu-latest
-    needs: [terraform-format-check, go-validity, code-quality]
-    if: always()
     steps:
-      - name: Generate summary
-        run: |
-          echo "# PR Summary" > $GITHUB_STEP_SUMMARY
-          echo "✅ All CI checks passed!" >> $GITHUB_STEP_SUMMARY
+      - uses: actions/checkout@v4
 
-      - name: Add deployment instructions
-        run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ## 📝 To Deploy:
-          ```bash
-          make init-terraform
-          make deploy
-          ```
-          EOF
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
 
-      - name: Add review guidelines
-        run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ## 📋 Code Review Checklist:
-          - 🔄 Follow existing code style
-          - 🔐 Check for hardcoded secrets
-          - ✅ Ensure all tests pass
-          - 📚 Update documentation if needed
-          - 🔒 Verify security implications
-          EOF
+      - name: Run gosec
+        uses: securego/gosec@master
+        with:
+          args: ./function/...
+
+      - name: Run trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: ./function
+          severity: HIGH,CRITICAL
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: .
