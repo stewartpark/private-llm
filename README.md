@@ -48,7 +48,7 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 
 **The same FIPS-validated, NIST-compliant security primitives trusted by banks, healthcare, and federal agencies — deployed in infrastructure you own.**
 
-| Security Control | Enterprise Name | What It Gives You |
+| Security Control | Implementation | What It Gives You |
 |-----------------|-----------------|-------------------|
 | **End-to-end encryption** | mTLS (Mutual TLS 1.3) | Every request encrypted with 4096-bit RSA; both client and server authenticated |
 | **Hardware-protected secrets** | HSM + KMS | Encryption keys managed by dedicated hardware; even cloud admins can't access |
