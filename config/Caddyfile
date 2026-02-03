@@ -1,0 +1,19 @@
+private-llm-server:8080 {
+	tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key {
+		protocols tls1.3
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/certs/ca.crt
+		}
+	}
+
+	@bearer header Authorization "Bearer {{INTERNAL_TOKEN}}"
+
+	handle @bearer {
+		reverse_proxy localhost:11434 {
+			header_up Host localhost:11434
+		}
+	}
+
+	respond "Unauthorized" 401
+}

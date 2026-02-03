@@ -1,0 +1,22 @@
+version: v2
+severity:
+- HIGH
+- CRITICAL
+exclude:
+- G104 # Ignore potential error checks for non-critical operations
+# Rule configurations
+rules:
+  G101:
+    severity: HIGH
+  G102:
+    severity: HIGH
+  G103:
+    severity: HIGH
+    ignore:
+    - '**.mod'
+    - '**.sum'
+  G104:
+    severity: HIGH
+    exclude:
+    - main.go
+    - rotation.go
