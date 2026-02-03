@@ -75,11 +75,9 @@ TFSTATE_BUCKET=your-bucket-name make deploy
 # Get your credentials
 export LLM_PROXY_URL=$(terraform output -raw function_url)
 export LLM_API_TOKEN=$(gcloud secrets versions access latest --secret=private-llm-api-token)
-
-# Use it — send anything, it's YOUR infrastructure
-curl -H "Authorization: Bearer $LLM_API_TOKEN" $LLM_PROXY_URL/api/generate \
-  -d '{"prompt":"Analyze my financial data:","content":"<your sensitive data>"}'
 ```
+
+The API is OpenAI-compatible — use any OpenAI client library with `$LLM_PROXY_URL/v1` as the base URL and `$LLM_API_TOKEN` as the bearer token.
 
 ## Architecture
 
