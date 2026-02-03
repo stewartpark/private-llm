@@ -2,8 +2,12 @@
 
 # Deploy infrastructure
 deploy:
+ifndef TFSTATE_BUCKET
+	$(error TFSTATE_BUCKET is not set. Run: TFSTATE_BUCKET=your-bucket-name make deploy)
+endif
 	@echo "Deploying infrastructure..."
-	terraform init
+	@echo "Using tfstate bucket: $(TFSTATE_BUCKET)"
+	terraform init -backend-config="bucket=$(TFSTATE_BUCKET)"
 	terraform apply -auto-approve
 	@echo ""
 	@echo "Deployment complete!"
