@@ -59,6 +59,7 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 | **Nothing recorded** | Zero Data Logging | No prompts, responses, or telemetry stored anywhere |
 | **Tamper-proof deployments** | Immutable Infrastructure | No configuration drift; every deploy is identical |
 | **Binary tampering detection** | File Integrity Monitoring (FIM) | Critical binaries checksummed every 5 minutes; tampering triggers alerts |
+| **Aggressive secret rotation** | Automated Key Rotation | mTLS certificates and internal tokens have 7-day lifespans with 2-hour rotation checks; credential leaks expire before attackers can use them |
 
 **Built on validated standards:**
 - HSM key protection: [FIPS 140-2 Level 3](https://cloud.google.com/security/compliance/fips-140-2-validated)
