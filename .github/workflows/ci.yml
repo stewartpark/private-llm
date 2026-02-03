@@ -47,24 +47,13 @@ jobs:
           version: latest
           install-mode: goinstall
           working-directory: ./function
-          args: --timeout=5m
+          args: --timeout=5m --enable=gosec
 
   security:
     name: Security
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.x'
-          cache: true
-
-      - name: Run gosec
-        uses: securego/gosec@master
-        with:
-          args: -exclude-analyzers=all ./function/...
 
       - name: Run trivy
         uses: aquasecurity/trivy-action@master
