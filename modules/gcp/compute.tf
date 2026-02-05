@@ -27,8 +27,13 @@ resource "google_compute_instance" "inference" {
     initialize_params {
       # Use base Deep Learning VM image (Ubuntu 24.04, CUDA 12.8, NVIDIA drivers)
       image = "projects/deeplearning-platform-release/global/images/family/common-cu128-ubuntu-2404-nvidia-570"
-      size  = 100
-      type  = "pd-ssd" # Fast local disk for model storage
+      size  = 128
+      type  = "hyperdisk-balanced"
+      # ~600 MB/s provisioned = 50GB model loads in ~83 seconds
+      # IOPS: minimum 3000 sufficient for large file workloads (sequential reads)
+      # Cost: ~$9.98 capacity + $0 IOPS + ~$8.40 throughput = ~$18/month
+      provisioned_iops       = 3000
+      provisioned_throughput = 700
     }
   }
 

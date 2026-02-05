@@ -117,18 +117,18 @@ flowchart LR
 ## Cost
 
 **Fixed costs** (always paid):
-- Storage (100GB SSD): ~$17/month
+- Storage (128GB Hyperdisk Balanced): ~$18/month
 
 **Variable costs** (only when running):
-- Spot VM with GPU: ~$0.25/hour (L4) or ~$1.10/hour (A100)
+- Spot VM with GPU: ~$0.25/hour (L4) or $1.80/hour (RTX 6000 Blackwell 96GB)
 
-| Monthly usage | L4 (24GB VRAM) | A100 (40GB VRAM) |
+| Monthly usage | L4 (24GB VRAM) | RTX 6000 Blackwell (96GB VRAM) |
 |---------------|----------------|------------------|
-| **0 hours** (idle) | $17 | $17 |
-| **40 hours** (~10 hrs/week) | $27 | $61 |
-| **160 hours** (~40 hrs/week) | $57 | $193 |
-| **300 hours** (heavy use) | $92 | $347 |
-| **730 hours** (24/7) | $200 | $820 |
+| **0 hours** (idle) | $18 | $18 |
+| **40 hours** (~10 hrs/week) | $28 | $90 |
+| **160 hours** (~40 hrs/week) | $58 | $306 |
+| **300 hours** (heavy use) | $92 | $557 |
+| **730 hours** (24/7) | $200 | $1331 |
 
 *Spot pricing varies by region. Estimates based on us-central1.*
 
