@@ -17,7 +17,7 @@
 
 | | Buy a Mac Mini? | Build a home lab? | Use public APIs? | **Private LLM** |
 |---|---|---|---|---|
-| **Cost** | $1,000+ upfront | $3,000+ for GPU server | Pay per token | **~$17/mo + usage** |
+| **Cost** | $1,000+ upfront | $3,000+ for GPU server | Pay per token | **~$18/mo + usage** |
 | **Maintenance** | You fix it when it breaks | Electricity, cooling, network, updates | None | **None** |
 | **Privacy** | ✅ Local | ✅ Local | ❌ Third party sees everything | **✅ You own it all** |
 | **Future-proof** | ❌ Today's Mac can't run tomorrow's models | ❌ Hardware depreciates | ✅ Always latest | **✅ Always latest** |

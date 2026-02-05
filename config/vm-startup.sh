@@ -99,6 +99,31 @@ else
     # Provisioning in progress - do nothing
 fi
 
+# Helper function to wait for apt lock
+wait_for_apt_lock() {
+    echo "[APT] Stopping apt background services..."
+    sudo systemctl stop unattended-upgrades 2>/dev/null || true
+    sudo systemctl stop apt-daily.service 2>/dev/null || true
+    sudo systemctl stop apt-daily-upgrade.service 2>/dev/null || true
+
+    echo "[APT] Waiting for dpkg lock..."
+    for i in {1..60}; do
+        if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+           ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 && \
+           ! sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            echo "[APT] Lock acquired"
+            return 0
+        fi
+        echo "[APT] Waiting... attempt $i/60"
+        sleep 5
+    done
+
+    # Force kill if still locked
+    echo "[APT] Force killing apt processes..."
+    sudo pkill -9 -f 'apt|dpkg' 2>/dev/null || true
+    sleep 2
+}
+
 # Step 1: Install base packages
 if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     echo "[STEP 1] Installing base packages (gcsfuse, Caddy, Ollama, Cloud SDK, Ops Agent)..."
@@ -121,13 +146,17 @@ if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
     curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
 
+    # Wait for apt lock immediately before using apt
+    wait_for_apt_lock
+
     # Install packages
     sudo apt-get update
     sudo apt-get install -y --no-install-recommends \
         caddy \
         google-cloud-sdk
 
-    # Install Google Cloud Ops Agent
+    # Install Google Cloud Ops Agent (uses apt internally)
+    wait_for_apt_lock
     curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
     sudo bash add-google-cloud-ops-agent-repo.sh --also-install
     rm -f add-google-cloud-ops-agent-repo.sh
@@ -335,6 +364,8 @@ fi
 if [ ! -f "$INSTALL_DIR/.step5-remove-legacy" ]; then
     echo "[STEP 5] Removing legacy logging agents..."
 
+    wait_for_apt_lock
+
     # Remove legacy fluentd if present (replaced by ops-agent)
     sudo apt-get purge -y google-fluentd 2>/dev/null || true
     sudo systemctl mask google-fluentd 2>/dev/null || true
@@ -396,6 +427,8 @@ fi
 # Step 7: Cleanup
 if [ ! -f "$INSTALL_DIR/.step7-cleanup" ]; then
     echo "[STEP 7] Cleanup..."
+
+    wait_for_apt_lock
 
     # Remove unnecessary packages
     sudo apt-get autoremove --purge -y
