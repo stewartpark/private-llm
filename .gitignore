@@ -5,6 +5,5 @@
 terraform.tfvars
 opencode.json
 
-*.md
 !README.md
 !CHANGELOG.md

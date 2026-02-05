@@ -25,7 +25,7 @@ variable "region" {
 variable "zone" {
   description = "GCP zone"
   type        = string
-  default     = "us-central1-a"
+  default     = "us-central1-f"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ variable "vm_name" {
 variable "machine_type" {
   description = "Machine type for the VM"
   type        = string
-  default     = "a2-highgpu-1g"
+  default     = "g4-standard-48"
 }
 
 variable "idle_timeout" {
@@ -59,13 +59,13 @@ variable "subnet_cidr" {
 variable "default_model" {
   description = "Default model to pull on first boot"
   type        = string
-  default     = "glm-4.7-flash"
+  default     = "qwen3-coder-next:q8_0"
 }
 
 variable "context_length" {
   description = "Default context length for inference"
   type        = number
-  default     = 202752
+  default     = 262144
 }
 
 variable "enable_external_ip" {

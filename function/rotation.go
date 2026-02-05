@@ -132,112 +132,38 @@ func RotationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCARotationPubSub generates new CA and all credentials (Pub/Sub version)
-func handleCARotationPubSub(ctx context.Context, dryRun bool) error {
-	log.Printf("[rotation] Generating CA certificate (10-year validity)...")
-	caCert, caKey, err := generateCA()
-	if err != nil {
-		return fmt.Errorf("failed to generate CA: %w", err)
-	}
-
-	log.Printf("[rotation] Generating server certificate (1-week validity)...")
-	serverCert, serverKey, serverNotAfter, err := generateServerCert(caCert, caKey)
-	if err != nil {
-		return fmt.Errorf("failed to generate server cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating client certificate (1-week validity)...")
-	clientCert, clientKey, clientNotAfter, err := generateClientCert(caCert, caKey)
-	if err != nil {
-		return fmt.Errorf("failed to generate client cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating internal token (64 chars)...")
-	internalToken, err := generateToken(64)
-	if err != nil {
-		return fmt.Errorf("failed to generate internal token: %w", err)
-	}
-
-	creds := &Credentials{
-		CACert:         caCert,
-		CAKey:          caKey,
-		ServerCert:     serverCert,
-		ServerKey:      serverKey,
-		ClientCert:     clientCert,
-		ClientKey:      clientKey,
-		InternalToken:  internalToken,
-		ServerNotAfter: serverNotAfter,
-		ClientNotAfter: clientNotAfter,
-	}
-
-	log.Printf("[rotation] Validating generated credentials...")
-	if err := validateCredentials(creds); err != nil {
-		return fmt.Errorf("credential validation failed: %w", err)
-	}
-
-	if dryRun {
-		log.Printf("[rotation] Dry run mode - would rotate CA and regenerate all certificates")
-		log.Printf("[rotation] CA expires: %s", creds.ServerNotAfter.Add(9*365*24*time.Hour).Format("2006-01-02"))
-		log.Printf("[rotation] Server expires: %s", creds.ServerNotAfter.Format("2006-01-02"))
-		log.Printf("[rotation] Client expires: %s", creds.ClientNotAfter.Format("2006-01-02"))
-		return nil
-	}
-
-	log.Printf("[rotation] Creating new secret versions for CA + server + client...")
-	projectID := os.Getenv("GCP_PROJECT")
-	if err := createSecretVersion(ctx, projectID, "private-llm-ca-cert", creds.CACert); err != nil {
-		return fmt.Errorf("failed to create ca-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-ca-key", creds.CAKey); err != nil {
-		return fmt.Errorf("failed to create ca-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-cert", creds.ServerCert); err != nil {
-		return fmt.Errorf("failed to create server-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-key", creds.ServerKey); err != nil {
-		return fmt.Errorf("failed to create server-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-cert", creds.ClientCert); err != nil {
-		return fmt.Errorf("failed to create client-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-key", creds.ClientKey); err != nil {
-		return fmt.Errorf("failed to create client-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
-		return fmt.Errorf("failed to create internal-token version: %w", err)
-	}
-
-	log.Printf("[rotation] CA rotation complete - all certificates regenerated")
-	log.Printf("[rotation] CA expires: %s", creds.ServerNotAfter.Add(9*365*24*time.Hour).Format("2006-01-02"))
-	log.Printf("[rotation] Server expires: %s", creds.ServerNotAfter.Format("2006-01-02"))
-	log.Printf("[rotation] Client expires: %s", creds.ClientNotAfter.Format("2006-01-02"))
-	return nil
+// RotationResult holds the result of a rotation operation for response formatting
+type RotationResult struct {
+	Status      string            `json:"status"`
+	Message     string            `json:"message"`
+	Note        string            `json:"note,omitempty"`
+	Credentials map[string]string `json:"credentials"`
 }
 
-// handleCARotation generates new CA and all credentials - HTTP version
-func handleCARotation(ctx context.Context, w http.ResponseWriter, dryRun bool) error {
+// doCARotation generates new CA and all credentials (shared core logic)
+func doCARotation(ctx context.Context, dryRun bool) (*RotationResult, error) {
 	log.Printf("[rotation] Generating CA certificate (10-year validity)...")
 	caCert, caKey, err := generateCA()
 	if err != nil {
-		return fmt.Errorf("failed to generate CA: %w", err)
+		return nil, fmt.Errorf("failed to generate CA: %w", err)
 	}
 
 	log.Printf("[rotation] Generating server certificate (1-week validity)...")
 	serverCert, serverKey, serverNotAfter, err := generateServerCert(caCert, caKey)
 	if err != nil {
-		return fmt.Errorf("failed to generate server cert: %w", err)
+		return nil, fmt.Errorf("failed to generate server cert: %w", err)
 	}
 
 	log.Printf("[rotation] Generating client certificate (1-week validity)...")
 	clientCert, clientKey, clientNotAfter, err := generateClientCert(caCert, caKey)
 	if err != nil {
-		return fmt.Errorf("failed to generate client cert: %w", err)
+		return nil, fmt.Errorf("failed to generate client cert: %w", err)
 	}
 
 	log.Printf("[rotation] Generating internal token (64 chars)...")
 	internalToken, err := generateToken(64)
 	if err != nil {
-		return fmt.Errorf("failed to generate internal token: %w", err)
+		return nil, fmt.Errorf("failed to generate internal token: %w", err)
 	}
 
 	creds := &Credentials{
@@ -254,269 +180,207 @@ func handleCARotation(ctx context.Context, w http.ResponseWriter, dryRun bool) e
 
 	log.Printf("[rotation] Validating generated credentials...")
 	if err := validateCredentials(creds); err != nil {
-		return fmt.Errorf("credential validation failed: %w", err)
+		return nil, fmt.Errorf("credential validation failed: %w", err)
+	}
+
+	credInfo := map[string]string{
+		"ca_expires":     creds.ServerNotAfter.Add(9 * 365 * 24 * time.Hour).Format("2006-01-02"),
+		"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
+		"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
 	}
 
 	if dryRun {
 		log.Printf("[rotation] Dry run mode - would rotate CA and regenerate all certificates")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":  "dry_run",
-			"message": "Would rotate CA and regenerate all certificates",
-			"credentials": map[string]string{
-				"ca_expires":     creds.ServerNotAfter.Add(9 * 365 * 24 * time.Hour).Format("2006-01-02"),
-				"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
-				"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
-			},
-		})
-		return nil
+		log.Printf("[rotation] CA expires: %s", credInfo["ca_expires"])
+		log.Printf("[rotation] Server expires: %s", credInfo["server_expires"])
+		log.Printf("[rotation] Client expires: %s", credInfo["client_expires"])
+		return &RotationResult{
+			Status:      "dry_run",
+			Message:     "Would rotate CA and regenerate all certificates",
+			Credentials: credInfo,
+		}, nil
 	}
 
 	log.Printf("[rotation] Creating new secret versions for CA + server + client...")
 	projectID := os.Getenv("GCP_PROJECT")
 	if err := createSecretVersion(ctx, projectID, "private-llm-ca-cert", creds.CACert); err != nil {
-		return fmt.Errorf("failed to create ca-cert version: %w", err)
+		return nil, fmt.Errorf("failed to create ca-cert version: %w", err)
+	}
+	if err := createSecretVersion(ctx, projectID, "private-llm-ca-key", creds.CAKey); err != nil {
+		return nil, fmt.Errorf("failed to create ca-key version: %w", err)
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-server-cert", creds.ServerCert); err != nil {
-		return fmt.Errorf("failed to create server-cert version: %w", err)
+		return nil, fmt.Errorf("failed to create server-cert version: %w", err)
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-server-key", creds.ServerKey); err != nil {
-		return fmt.Errorf("failed to create server-key version: %w", err)
+		return nil, fmt.Errorf("failed to create server-key version: %w", err)
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-client-cert", creds.ClientCert); err != nil {
-		return fmt.Errorf("failed to create client-cert version: %w", err)
+		return nil, fmt.Errorf("failed to create client-cert version: %w", err)
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-client-key", creds.ClientKey); err != nil {
-		return fmt.Errorf("failed to create client-key version: %w", err)
+		return nil, fmt.Errorf("failed to create client-key version: %w", err)
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
-		return fmt.Errorf("failed to create internal-token version: %w", err)
+		return nil, fmt.Errorf("failed to create internal-token version: %w", err)
 	}
 
 	log.Printf("[rotation] CA rotation complete - all certificates regenerated")
+	log.Printf("[rotation] CA expires: %s", credInfo["ca_expires"])
+	log.Printf("[rotation] Server expires: %s", credInfo["server_expires"])
+	log.Printf("[rotation] Client expires: %s", credInfo["client_expires"])
+
+	return &RotationResult{
+		Status:      "success",
+		Message:     "CA rotated - all certificates regenerated",
+		Note:        "Restart VM to load new server certificates",
+		Credentials: credInfo,
+	}, nil
+}
+
+// handleCARotationPubSub generates new CA and all credentials (Pub/Sub version)
+func handleCARotationPubSub(ctx context.Context, dryRun bool) error {
+	_, err := doCARotation(ctx, dryRun)
+	return err
+}
+
+// handleCARotation generates new CA and all credentials (HTTP version)
+func handleCARotation(ctx context.Context, w http.ResponseWriter, dryRun bool) error {
+	result, err := doCARotation(ctx, dryRun)
+	if err != nil {
+		return err
+	}
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":  "success",
-		"message": "CA rotated - all certificates regenerated",
-		"note":    "Restart VM to load new server certificates",
-		"credentials": map[string]string{
-			"ca_expires":     creds.ServerNotAfter.Add(9 * 365 * 24 * time.Hour).Format("2006-01-02"),
-			"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
-			"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
-		},
-	})
-	return nil
+	return json.NewEncoder(w).Encode(result)
+}
+
+// doRotation rotates server/client certs and internal token, keeping the CA (shared core logic)
+func doRotation(ctx context.Context, dryRun bool) (*RotationResult, error) {
+	projectID := os.Getenv("GCP_PROJECT")
+
+	log.Printf("[rotation] Fetching existing CA certificate...")
+	existingCA, err := getSecretVersion(ctx, projectID, "private-llm-ca-cert", "latest")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch existing CA: %w", err)
+	}
+
+	log.Printf("[rotation] Parsing existing CA...")
+	block, _ := pem.Decode(existingCA)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode CA PEM")
+	}
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA cert: %w", err)
+	}
+
+	log.Printf("[rotation] Fetching CA private key...")
+	caKeyPEM, err := getSecretVersion(ctx, projectID, "private-llm-ca-key", "latest")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch CA key: %w", err)
+	}
+
+	log.Printf("[rotation] Generating new server certificate (1-week validity)...")
+	serverCert, serverKey, serverNotAfter, err := generateServerCert(existingCA, caKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate server cert: %w", err)
+	}
+
+	log.Printf("[rotation] Generating new client certificate (1-week validity)...")
+	clientCert, clientKey, clientNotAfter, err := generateClientCert(existingCA, caKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate client cert: %w", err)
+	}
+
+	log.Printf("[rotation] Generating new internal token...")
+	internalToken, err := generateToken(64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate internal token: %w", err)
+	}
+
+	creds := &Credentials{
+		CACert:         existingCA,
+		ServerCert:     serverCert,
+		ServerKey:      serverKey,
+		ClientCert:     clientCert,
+		ClientKey:      clientKey,
+		InternalToken:  internalToken,
+		ServerNotAfter: serverNotAfter,
+		ClientNotAfter: clientNotAfter,
+	}
+
+	log.Printf("[rotation] Validating new credentials...")
+	if err := validateCredentials(creds); err != nil {
+		return nil, fmt.Errorf("credential validation failed: %w", err)
+	}
+
+	credInfo := map[string]string{
+		"ca_expires":     caCert.NotAfter.Format("2006-01-02"),
+		"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
+		"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
+	}
+
+	if dryRun {
+		log.Printf("[rotation] Dry run mode - would rotate 5 secrets")
+		log.Printf("[rotation] CA expires: %s", credInfo["ca_expires"])
+		log.Printf("[rotation] Server expires: %s", credInfo["server_expires"])
+		log.Printf("[rotation] Client expires: %s", credInfo["client_expires"])
+		return &RotationResult{
+			Status:      "dry_run",
+			Message:     "Would rotate server cert, client cert, and internal token",
+			Credentials: credInfo,
+		}, nil
+	}
+
+	log.Printf("[rotation] Creating new secret versions...")
+	if err := createSecretVersion(ctx, projectID, "private-llm-server-cert", creds.ServerCert); err != nil {
+		return nil, fmt.Errorf("failed to create server-cert version: %w", err)
+	}
+	if err := createSecretVersion(ctx, projectID, "private-llm-server-key", creds.ServerKey); err != nil {
+		return nil, fmt.Errorf("failed to create server-key version: %w", err)
+	}
+	if err := createSecretVersion(ctx, projectID, "private-llm-client-cert", creds.ClientCert); err != nil {
+		return nil, fmt.Errorf("failed to create client-cert version: %w", err)
+	}
+	if err := createSecretVersion(ctx, projectID, "private-llm-client-key", creds.ClientKey); err != nil {
+		return nil, fmt.Errorf("failed to create client-key version: %w", err)
+	}
+	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
+		return nil, fmt.Errorf("failed to create internal-token version: %w", err)
+	}
+
+	log.Printf("[rotation] Redeploying proxy function to pick up new client cert...")
+	if err := redeployProxyFunction(ctx); err != nil {
+		log.Printf("[rotation] Warning: failed to redeploy proxy function: %v", err)
+		// Don't fail the rotation, just warn
+	}
+
+	log.Printf("[rotation] Rotation complete")
+	log.Printf("[rotation] CA expires: %s", credInfo["ca_expires"])
+	log.Printf("[rotation] Server expires: %s", credInfo["server_expires"])
+	log.Printf("[rotation] Client expires: %s", credInfo["client_expires"])
+
+	return &RotationResult{
+		Status:      "success",
+		Message:     "Credentials rotated successfully",
+		Credentials: credInfo,
+	}, nil
 }
 
 // handleRotationPubSub rotates server/client certs and internal token (Pub/Sub version)
 func handleRotationPubSub(ctx context.Context, dryRun bool) error {
-	projectID := os.Getenv("GCP_PROJECT")
-
-	log.Printf("[rotation] Fetching existing CA certificate...")
-	existingCA, err := getSecretVersion(ctx, projectID, "private-llm-ca-cert", "latest")
-	if err != nil {
-		return fmt.Errorf("failed to fetch existing CA: %w", err)
-	}
-
-	log.Printf("[rotation] Parsing existing CA...")
-	block, _ := pem.Decode(existingCA)
-	if block == nil {
-		return fmt.Errorf("failed to decode CA PEM")
-	}
-	caCert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse CA cert: %w", err)
-	}
-
-	log.Printf("[rotation] Fetching CA private key...")
-	caKeyPEM, err := getSecretVersion(ctx, projectID, "private-llm-ca-key", "latest")
-	if err != nil {
-		return fmt.Errorf("failed to fetch CA key: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new server certificate (1-week validity)...")
-	serverCert, serverKey, serverNotAfter, err := generateServerCert(existingCA, caKeyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to generate server cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new client certificate (1-week validity)...")
-	clientCert, clientKey, clientNotAfter, err := generateClientCert(existingCA, caKeyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to generate client cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new internal token...")
-	internalToken, err := generateToken(64)
-	if err != nil {
-		return fmt.Errorf("failed to generate internal token: %w", err)
-	}
-
-	creds := &Credentials{
-		CACert:         existingCA,
-		ServerCert:     serverCert,
-		ServerKey:      serverKey,
-		ClientCert:     clientCert,
-		ClientKey:      clientKey,
-		InternalToken:  internalToken,
-		ServerNotAfter: serverNotAfter,
-		ClientNotAfter: clientNotAfter,
-	}
-
-	log.Printf("[rotation] Validating new credentials...")
-	if err := validateCredentials(creds); err != nil {
-		return fmt.Errorf("credential validation failed: %w", err)
-	}
-
-	if dryRun {
-		log.Printf("[rotation] Dry run mode - would rotate 5 secrets")
-		log.Printf("[rotation] CA expires: %s", caCert.NotAfter.Format("2006-01-02"))
-		log.Printf("[rotation] Server expires: %s", creds.ServerNotAfter.Format("2006-01-02"))
-		log.Printf("[rotation] Client expires: %s", creds.ClientNotAfter.Format("2006-01-02"))
-		return nil
-	}
-
-	log.Printf("[rotation] Creating new secret versions...")
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-cert", creds.ServerCert); err != nil {
-		return fmt.Errorf("failed to create server-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-key", creds.ServerKey); err != nil {
-		return fmt.Errorf("failed to create server-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-cert", creds.ClientCert); err != nil {
-		return fmt.Errorf("failed to create client-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-key", creds.ClientKey); err != nil {
-		return fmt.Errorf("failed to create client-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
-		return fmt.Errorf("failed to create internal-token version: %w", err)
-	}
-
-	log.Printf("[rotation] Redeploying proxy function to pick up new client cert...")
-	if err := redeployProxyFunction(ctx); err != nil {
-		log.Printf("[rotation] Warning: failed to redeploy proxy function: %v", err)
-		// Don't fail the rotation, just warn
-	}
-
-	log.Printf("[rotation] Rotation complete")
-	log.Printf("[rotation] CA expires: %s", caCert.NotAfter.Format("2006-01-02"))
-	log.Printf("[rotation] Server expires: %s", creds.ServerNotAfter.Format("2006-01-02"))
-	log.Printf("[rotation] Client expires: %s", creds.ClientNotAfter.Format("2006-01-02"))
-	return nil
+	_, err := doRotation(ctx, dryRun)
+	return err
 }
 
-// handleRotation rotates server/client certs and internal token (keeps CA) - HTTP version
+// handleRotation rotates server/client certs and internal token (HTTP version)
 func handleRotation(ctx context.Context, w http.ResponseWriter, dryRun bool) error {
-	projectID := os.Getenv("GCP_PROJECT")
-
-	log.Printf("[rotation] Fetching existing CA certificate...")
-	existingCA, err := getSecretVersion(ctx, projectID, "private-llm-ca-cert", "latest")
+	result, err := doRotation(ctx, dryRun)
 	if err != nil {
-		return fmt.Errorf("failed to fetch existing CA: %w", err)
+		return err
 	}
-
-	log.Printf("[rotation] Parsing existing CA...")
-	block, _ := pem.Decode(existingCA)
-	if block == nil {
-		return fmt.Errorf("failed to decode CA PEM")
-	}
-	caCert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse CA cert: %w", err)
-	}
-
-	// For rotation, we need the CA key to sign new certs
-	log.Printf("[rotation] Fetching CA private key...")
-	caKeyPEM, err := getSecretVersion(ctx, projectID, "private-llm-ca-key", "latest")
-	if err != nil {
-		return fmt.Errorf("failed to fetch CA key: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new server certificate (1-week validity)...")
-	serverCert, serverKey, serverNotAfter, err := generateServerCert(existingCA, caKeyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to generate server cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new client certificate (1-week validity)...")
-	clientCert, clientKey, clientNotAfter, err := generateClientCert(existingCA, caKeyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to generate client cert: %w", err)
-	}
-
-	log.Printf("[rotation] Generating new internal token...")
-	internalToken, err := generateToken(64)
-	if err != nil {
-		return fmt.Errorf("failed to generate internal token: %w", err)
-	}
-
-	creds := &Credentials{
-		CACert:         existingCA,
-		ServerCert:     serverCert,
-		ServerKey:      serverKey,
-		ClientCert:     clientCert,
-		ClientKey:      clientKey,
-		InternalToken:  internalToken,
-		ServerNotAfter: serverNotAfter,
-		ClientNotAfter: clientNotAfter,
-	}
-
-	log.Printf("[rotation] Validating new credentials...")
-	if err := validateCredentials(creds); err != nil {
-		return fmt.Errorf("credential validation failed: %w", err)
-	}
-
-	if dryRun {
-		log.Printf("[rotation] Dry run mode - would rotate 5 secrets")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":  "dry_run",
-			"message": "Would rotate server cert, client cert, and internal token",
-			"credentials": map[string]string{
-				"ca_expires":     caCert.NotAfter.Format("2006-01-02"),
-				"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
-				"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
-			},
-		})
-		return nil
-	}
-
-	log.Printf("[rotation] Creating new secret versions...")
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-cert", creds.ServerCert); err != nil {
-		return fmt.Errorf("failed to create server-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-server-key", creds.ServerKey); err != nil {
-		return fmt.Errorf("failed to create server-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-cert", creds.ClientCert); err != nil {
-		return fmt.Errorf("failed to create client-cert version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-client-key", creds.ClientKey); err != nil {
-		return fmt.Errorf("failed to create client-key version: %w", err)
-	}
-	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
-		return fmt.Errorf("failed to create internal-token version: %w", err)
-	}
-
-	log.Printf("[rotation] Redeploying proxy function to pick up new client cert...")
-	if err := redeployProxyFunction(ctx); err != nil {
-		log.Printf("[rotation] Warning: failed to redeploy proxy function: %v", err)
-		// Don't fail the rotation, just warn
-	}
-
-	log.Printf("[rotation] Rotation complete")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":  "success",
-		"message": "Credentials rotated successfully",
-		"credentials": map[string]string{
-			"ca_expires":     caCert.NotAfter.Format("2006-01-02"),
-			"server_expires": creds.ServerNotAfter.Format("2006-01-02"),
-			"client_expires": creds.ClientNotAfter.Format("2006-01-02"),
-		},
-	})
-	return nil
+	return json.NewEncoder(w).Encode(result)
 }
 
 // checkRotationEligibility determines if rotation is safe to perform

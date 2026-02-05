@@ -20,6 +20,37 @@ VM_NAME=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/c
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
 
+# ============================================
+# Prevent dpkg lock contention (runs every boot)
+# ============================================
+echo "[INIT] Stopping apt/dpkg background services..."
+sudo systemctl stop unattended-upgrades 2>/dev/null || true
+sudo systemctl stop apt-daily.service 2>/dev/null || true
+sudo systemctl stop apt-daily-upgrade.service 2>/dev/null || true
+
+echo "[INIT] Waiting for dpkg lock to be available..."
+for i in {1..60}; do
+    if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+       ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 && \
+       ! sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        echo "[INIT] dpkg lock is available"
+        break
+    fi
+    echo "[INIT] Waiting for dpkg lock... attempt $i/60"
+    sleep 5
+done
+
+# Kill any remaining apt/dpkg processes
+sudo pkill -9 unattended-upgr 2>/dev/null || true
+sudo pkill -9 apt 2>/dev/null || true
+sleep 1
+
+# Disable unattended-upgrades permanently (idempotent)
+sudo systemctl disable unattended-upgrades 2>/dev/null || true
+sudo systemctl mask unattended-upgrades 2>/dev/null || true
+sudo systemctl disable apt-daily.timer 2>/dev/null || true
+sudo systemctl disable apt-daily-upgrade.timer 2>/dev/null || true
+
 # Pre-step: Ensure Firestore document exists with correct state
 # Wait for gcloud to be ready and authenticate
 echo "[PRE] Waiting for gcloud authentication..."
@@ -72,23 +103,6 @@ fi
 if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     echo "[STEP 1] Installing base packages (gcsfuse, Caddy, Ollama, Cloud SDK, Ops Agent)..."
 
-    # Stop unattended-upgrades to prevent dpkg lock contention during installation
-    echo "[STEP 1] Stopping unattended-upgrades..."
-    sudo systemctl stop unattended-upgrades 2>/dev/null || true
-    sudo systemctl stop apt-daily.service 2>/dev/null || true
-    sudo systemctl stop apt-daily-upgrade.service 2>/dev/null || true
-
-    # Wait for any running apt/dpkg processes to finish
-    echo "[STEP 1] Waiting for apt/dpkg processes to finish..."
-    for i in {1..60}; do
-        if ! pgrep -x "apt|apt-get|dpkg|unattended-upgr" > /dev/null 2>&1; then
-            echo "[STEP 1] No apt/dpkg processes running"
-            break
-        fi
-        echo "[STEP 1] Waiting for apt/dpkg processes... attempt $i/60"
-        sleep 5
-    done
-
     # Remove bullseye-backports (no longer available)
     sudo rm -f /etc/apt/sources.list.d/bullseye-backports.list
     sudo sed -i '/bullseye-backports/d' /etc/apt/sources.list
@@ -100,12 +114,12 @@ if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
 
     # Install Caddy
     sudo mkdir -p /usr/share/keyrings
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --batch --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 
     # Install Google Cloud SDK repository
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
-    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --batch --dearmor -o /usr/share/keyrings/cloud.google.gpg
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
 
     # Install packages
     sudo apt-get update
@@ -118,8 +132,13 @@ if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     sudo bash add-google-cloud-ops-agent-repo.sh --also-install
     rm -f add-google-cloud-ops-agent-repo.sh
 
-    # Install Ollama (fully silent to avoid bufio.Scanner token limit)
-    curl -fsSL https://ollama.com/install.sh | sh &> /dev/null
+    # Install Ollama pre-release (output logged to prevent metadata runner buffer overflow)
+    if ! curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.15.5-rc3 sh > /var/log/ollama-install.log 2>&1; then
+        echo "[STEP 1] ERROR: Ollama installation failed"
+        echo "[STEP 1] Last 100 lines of /var/log/ollama-install.log:"
+        tail -n 100 /var/log/ollama-install.log
+        exit 1
+    fi
 
     touch "$INSTALL_DIR/.step1-base-packages"
     echo "[STEP 1] Complete"
@@ -162,7 +181,7 @@ sudo chmod 644 /etc/caddy/Caddyfile
 
 rm -f /tmp/internal-token
 
-# Fetch context length from metadata and update Ollama service environment
+# Fetch context length and max batch size from metadata and update Ollama service environment
 CONTEXT_LENGTH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/context-length)
 sudo mkdir -p /etc/systemd/system/ollama.service.d
 sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<ENVEOF
@@ -173,6 +192,8 @@ Requires=private-llm-bootstrap.service
 [Service]
 Environment="OLLAMA_CONTEXT_LENGTH=${CONTEXT_LENGTH}"
 Environment="OLLAMA_KEEP_ALIVE=-1"
+Environment="OLLAMA_CUDA_GRAPHS=1"
+Environment="OLLAMA_NUM_THREADS=8"
 ENVEOF
 
 sudo systemctl daemon-reload
@@ -363,10 +384,6 @@ Anonymize=no
 RouteMetric=100
 EOF
 
-    # Disable apt-daily services (they can run during boot)
-    sudo systemctl disable apt-daily.timer 2>/dev/null || true
-    sudo systemctl disable apt-daily-upgrade.timer 2>/dev/null || true
-
     # Disable SSH for security (serial console only for debugging)
     sudo systemctl stop ssh || true
     sudo systemctl disable ssh || true
@@ -379,8 +396,6 @@ fi
 # Step 7: Cleanup
 if [ ! -f "$INSTALL_DIR/.step7-cleanup" ]; then
     echo "[STEP 7] Cleanup..."
-
-    # Note: unattended-upgrades was stopped in Step 1, no lock contention expected
 
     # Remove unnecessary packages
     sudo apt-get autoremove --purge -y
