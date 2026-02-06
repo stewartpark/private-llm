@@ -3,7 +3,8 @@
 .terraform/
 .terraform.lock.hcl
 terraform.tfvars
-opencode.json
+.claude/
+bin/
 
 !README.md
 !CHANGELOG.md

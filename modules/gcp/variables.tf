@@ -69,12 +69,6 @@ variable "bootstrap_internal_token" {
   sensitive   = true
 }
 
-variable "bootstrap_api_token" {
-  description = "Bootstrap API token (user-managed, persists)"
-  type        = string
-  sensitive   = true
-}
-
 # ──────────────────────────────────────────────────────────────
 # VM Configuration
 # ──────────────────────────────────────────────────────────────
@@ -106,7 +100,7 @@ variable "context_length" {
 variable "idle_timeout" {
   description = "Idle timeout in seconds for VM"
   type        = number
-  default     = 300
+  default     = 900
 }
 
 variable "subnet_cidr" {

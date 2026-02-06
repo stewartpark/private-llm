@@ -6,11 +6,6 @@
 #
 # ──────────────────────────────────────────────────────────────
 
-output "function_url" {
-  value       = module.gcp.function_url
-  description = "URL of the Cloud Function proxy"
-}
-
 output "vm_name" {
   value       = module.gcp.vm_name
   description = "Name of the inference VM"
@@ -31,6 +26,11 @@ output "zone" {
   description = "GCP zone for the VM"
 }
 
+output "network" {
+  value       = module.gcp.network_name
+  description = "VPC network name"
+}
+
 output "secret_rotation_topic" {
   value       = module.gcp.secret_rotation_topic
   description = "Pub/Sub topic for secret rotation (no HTTP endpoint)"
@@ -46,27 +46,21 @@ output "kms_key" {
   description = "KMS crypto key (all resources)"
 }
 
-output "api_token" {
-  value       = local.bootstrap_api_token
-  description = "API token for authentication (bootstrap value, may be rotated in Secret Manager)"
-  sensitive   = true
-}
-
 output "usage" {
   value = <<-EOT
 
-    # Get your API token
-    terraform output -raw api_token
+    # Install the local agent
+    make install
 
-    # Pull a model (starts VM if stopped, ~60s warm start, ~6-11min first boot)
-    curl -H "Authorization: Bearer <API_TOKEN>" ${module.gcp.function_url}/api/pull -d '{"name":"llama3.2:1b"}'
+    # Run the agent (listens on localhost:11434, acts as Ollama)
+    private-llm-agent
 
-    # List models
-    curl -H "Authorization: Bearer <API_TOKEN>" ${module.gcp.function_url}/api/tags
+    # In another terminal:
+    ollama ls              # List models
+    ollama pull llama3.2   # Pull a model
+    ollama run llama3.2    # Chat with a model
 
-    # Chat
-    curl -H "Authorization: Bearer <API_TOKEN>" ${module.gcp.function_url}/api/chat -d '{"model":"llama3.2:1b","messages":[{"role":"user","content":"Hello"}]}'
-
-    # First boot: Installation takes 6-11 minutes. Proxy returns 503 with progress during install.
+    # Ctrl+C the agent to clean up firewall rule
+    # VM auto-stops after ${var.idle_timeout}s idle
   EOT
 }

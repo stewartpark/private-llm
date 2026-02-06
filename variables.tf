@@ -47,7 +47,7 @@ variable "machine_type" {
 variable "idle_timeout" {
   description = "Idle timeout in seconds for VM"
   type        = number
-  default     = 300
+  default     = 900
 }
 
 variable "subnet_cidr" {

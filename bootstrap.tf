@@ -7,7 +7,6 @@
 #
 # These are BOOTSTRAP values only.
 # The rotation function overwrites certs/tokens in Secret Manager.
-# API token is user-managed and persists.
 #
 # Generated secrets:
 # - CA certificate (10-year validity, 4096-bit RSA)
@@ -17,7 +16,6 @@
 # - Client certificate (1-week validity, signed by CA)
 # - Client private key
 # - Internal token (64 hex chars)
-# - API token (64 chars)
 #
 # ──────────────────────────────────────────────────────────────
 
@@ -123,15 +121,6 @@ resource "random_password" "internal_token" {
 }
 
 # ──────────────────────────────────────────────────────────────
-# API Token (64 characters, user-managed)
-# ──────────────────────────────────────────────────────────────
-
-resource "random_password" "api_token" {
-  length  = 64
-  special = false
-}
-
-# ──────────────────────────────────────────────────────────────
 # Bootstrap Locals (exposed to modules)
 # ──────────────────────────────────────────────────────────────
 
@@ -145,5 +134,4 @@ locals {
   bootstrap_client_cert_pem = tls_locally_signed_cert.client.cert_pem
   bootstrap_client_key_pem  = tls_private_key.client.private_key_pem
   bootstrap_internal_token  = random_password.internal_token.result
-  bootstrap_api_token       = random_password.api_token.result # User-managed, persists
 }

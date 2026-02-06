@@ -43,15 +43,6 @@ resource "google_firestore_database" "database" {
   depends_on = [google_project_service.apis]
 }
 
-# Grant proxy function Firestore read/write access
-resource "google_project_iam_member" "proxy_firestore" {
-  project = var.project_id
-  role    = "roles/datastore.user"
-  member  = "serviceAccount:${google_service_account.proxy.email}"
-
-  depends_on = [google_firestore_database.database]
-}
-
 # Grant idle monitoring function Firestore read access
 resource "google_project_iam_member" "idle_monitoring_firestore" {
   project = var.project_id
