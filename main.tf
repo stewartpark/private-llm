@@ -35,7 +35,6 @@ module "gcp" {
   bootstrap_client_cert_pem = local.bootstrap_client_cert_pem
   bootstrap_client_key_pem  = local.bootstrap_client_key_pem
   bootstrap_internal_token  = local.bootstrap_internal_token
-  bootstrap_api_token       = local.bootstrap_api_token
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -63,5 +62,4 @@ module "gcp" {
 #   bootstrap_client_cert_pem = local.bootstrap_client_cert_pem
 #   bootstrap_client_key_pem  = local.bootstrap_client_key_pem
 #   bootstrap_internal_token  = local.bootstrap_internal_token
-#   bootstrap_api_token       = local.bootstrap_api_token
 # }

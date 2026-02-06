@@ -2,11 +2,6 @@
 # GCP Module Outputs
 # ──────────────────────────────────────────────────────────────
 
-output "function_url" {
-  value       = google_cloudfunctions2_function.proxy.url
-  description = "URL of the Cloud Function proxy"
-}
-
 output "vm_name" {
   value       = google_compute_instance.inference.name
   description = "Name of the inference VM"
@@ -30,4 +25,9 @@ output "kms_key_ring" {
 output "kms_key" {
   value       = google_kms_crypto_key.main.id
   description = "KMS crypto key ID"
+}
+
+output "network_name" {
+  value       = google_compute_network.main.name
+  description = "VPC network name"
 }

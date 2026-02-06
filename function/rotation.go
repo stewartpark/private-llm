@@ -21,7 +21,6 @@ import (
 	"cloud.google.com/go/compute/apiv1/computepb"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
-	run "google.golang.org/api/run/v2"
 )
 
 // Credentials holds all generated cryptographic materials
@@ -347,12 +346,6 @@ func doRotation(ctx context.Context, dryRun bool) (*RotationResult, error) {
 	}
 	if err := createSecretVersion(ctx, projectID, "private-llm-internal-token", []byte(creds.InternalToken)); err != nil {
 		return nil, fmt.Errorf("failed to create internal-token version: %w", err)
-	}
-
-	log.Printf("[rotation] Redeploying proxy function to pick up new client cert...")
-	if err := redeployProxyFunction(ctx); err != nil {
-		log.Printf("[rotation] Warning: failed to redeploy proxy function: %v", err)
-		// Don't fail the rotation, just warn
 	}
 
 	log.Printf("[rotation] Rotation complete")
@@ -703,44 +696,3 @@ func createSecretVersion(ctx context.Context, projectID, secretID string, data [
 	return nil
 }
 
-// redeployProxyFunction forces the proxy function to redeploy and pick up new secrets
-func redeployProxyFunction(ctx context.Context) error {
-	projectID := os.Getenv("GCP_PROJECT")
-	region := os.Getenv("GCP_REGION")
-	if region == "" {
-		region = "us-central1"
-	}
-	functionName := os.Getenv("FUNCTION_NAME")
-	if functionName == "" {
-		functionName = "private-llm-proxy"
-	}
-
-	runService, err := run.NewService(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create Cloud Run client: %w", err)
-	}
-
-	serviceName := fmt.Sprintf("projects/%s/locations/%s/services/%s", projectID, region, functionName)
-
-	// Get current service
-	service, err := runService.Projects.Locations.Services.Get(serviceName).Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("failed to get service: %w", err)
-	}
-
-	// Force a new revision by updating TEMPLATE annotations (not service-level)
-	// Cloud Run only creates new revisions when the template changes
-	if service.Template.Annotations == nil {
-		service.Template.Annotations = make(map[string]string)
-	}
-	service.Template.Annotations["rotation-timestamp"] = time.Now().Format(time.RFC3339)
-
-	// Update the service template
-	_, err = runService.Projects.Locations.Services.Patch(serviceName, service).UpdateMask("template.annotations").Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("failed to update service: %w", err)
-	}
-
-	log.Printf("[rotation] Triggered redeploy of proxy function")
-	return nil
-}

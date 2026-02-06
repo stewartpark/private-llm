@@ -137,30 +137,7 @@ resource "google_secret_manager_secret" "client_key" {
 # Token Secret Definitions
 # ──────────────────────────────────────────────────────────────
 
-# External API Token (user → function authentication)
-# User-managed via `make rotate-key`
-# Secret Manager enforces 90-day TTL (auto-expires)
-resource "google_secret_manager_secret" "api_token" {
-  secret_id = "private-llm-api-token"
-  replication {
-    user_managed {
-      replicas {
-        location = var.region
-        customer_managed_encryption {
-          kms_key_name = google_kms_crypto_key.main.id
-        }
-      }
-    }
-  }
-  # Token versions auto-expire after 90 days
-  ttl = "7776000s" # 90 days
-  depends_on = [
-    google_project_service.apis,
-    google_kms_crypto_key_iam_member.secretmanager
-  ]
-}
-
-# Internal Token (function → VM authentication)
+# Internal Token (agent → VM authentication via mTLS)
 # Auto-rotated by secret rotation function
 resource "google_secret_manager_secret" "internal_token" {
   secret_id = "private-llm-internal-token"
@@ -221,16 +198,6 @@ resource "google_secret_manager_secret_version" "client_key_initial" {
   secret_data = var.bootstrap_client_key_pem
 }
 
-# API Token (user should rotate via `make rotate-key`)
-resource "google_secret_manager_secret_version" "api_token_initial" {
-  secret      = google_secret_manager_secret.api_token.id
-  secret_data = var.bootstrap_api_token
-
-  lifecycle {
-    ignore_changes = [secret_data] # Don't update when user rotates manually
-  }
-}
-
 # Internal Token
 resource "google_secret_manager_secret_version" "internal_token_initial" {
   secret      = google_secret_manager_secret.internal_token.id
@@ -264,37 +231,6 @@ resource "google_secret_manager_secret_iam_member" "vm_internal_token" {
   secret_id = google_secret_manager_secret.internal_token.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.vm.email}"
-}
-
-# Proxy function access to secrets (mTLS + both tokens)
-resource "google_secret_manager_secret_iam_member" "proxy_ca_cert" {
-  secret_id = google_secret_manager_secret.ca_cert.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.proxy.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "proxy_client_cert" {
-  secret_id = google_secret_manager_secret.client_cert.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.proxy.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "proxy_client_key" {
-  secret_id = google_secret_manager_secret.client_key.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.proxy.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "proxy_api_token" {
-  secret_id = google_secret_manager_secret.api_token.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.proxy.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "proxy_internal_token" {
-  secret_id = google_secret_manager_secret.internal_token.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.proxy.email}"
 }
 
 # Secret rotation function access (admin on all secrets)
