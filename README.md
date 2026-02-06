@@ -29,7 +29,7 @@
 - **Future-proof** -- Cloud GPUs scale with next-gen models; your Mac Mini doesn't
 - **Deploy in minutes** -- Not weeks of home lab tinkering
 - **Pay only when you use it** -- No idle hardware burning electricity
-- **Drop-in Ollama replacement** -- Any tool that supports Ollama just works
+- **Works with every Ollama tool** -- The agent speaks the Ollama API on localhost; your tools don't know the difference
 
 ---
 
@@ -96,7 +96,7 @@ Ctrl+C the agent to clean up the firewall rule. The VM auto-stops after idle tim
 
 ## Use with Coding Agents
 
-Private LLM is a drop-in Ollama replacement, so any coding agent that supports Ollama works out of the box:
+The agent speaks the Ollama API on localhost, so any coding agent that supports Ollama works out of the box:
 
 ```bash
 ollama launch claude       # Claude Code
