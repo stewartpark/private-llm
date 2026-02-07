@@ -6,6 +6,7 @@
 
 <p align="center">
   <strong>Enterprise-grade privacy. No hardware to buy. No lab to maintain.</strong><br>
+  A single binary that provisions GPU VMs, manages mTLS certificates, and proxies Ollama on localhost.<br>
   Deploy in minutes. No one else sees your data.
 </p>
 
@@ -29,7 +30,7 @@
 - **Future-proof** -- Cloud GPUs scale with next-gen models; your Mac Mini doesn't
 - **Deploy in minutes** -- Not weeks of home lab tinkering
 - **Pay only when you use it** -- No idle hardware burning electricity
-- **Works with every Ollama tool** -- The agent speaks the Ollama API on localhost; your tools don't know the difference
+- **Works with every Ollama tool** -- Speaks the Ollama API on localhost; your tools don't know the difference
 
 ---
 
@@ -53,15 +54,17 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 |-----------------|-----------------|-------------------|
 | **End-to-end encryption** | mTLS (Mutual TLS 1.3) | Every request encrypted with 4096-bit RSA; both client and server authenticated |
 | **No middlemen in data path** | Direct mTLS (localhost to VM) | No cloud load balancers, proxies, or functions see your plaintext |
+| **Split-trust CA** | CA key local-only | CA private key never leaves your machine; cloud compromise cannot forge certificates |
 | **Hardware-protected secrets** | HSM + KMS | Encryption keys managed by dedicated hardware; even cloud admins can't access |
 | **Verified boot chain** | Shielded VM (Secure Boot + TPM) | VM integrity verified at every boot; tampering detected immediately |
-| **Dynamic firewall** | Ephemeral IP-locked rules | Only your current IP can reach the VM; rule deleted on agent shutdown |
-| **Assume breach posture** | Zero Trust Architecture | No implicit trust; every request validated with mTLS + internal token |
+| **Dynamic firewall** | Ephemeral IP-locked rules | Only your current IP can reach the VM; rule deleted on shutdown |
+| **Cert fingerprint pinning** | SHA-256 pin in memory | Server cert fingerprint verified on every connection; MITM detected even if CA is compromised |
+| **Assume breach posture** | Zero Trust Architecture | No implicit trust; every request validated with mTLS + bearer token |
 | **Data stays yours** | Your Cloud Account | Prompts and responses never leave your infrastructure |
 | **Nothing recorded** | Zero Data Logging | No prompts, responses, or telemetry stored anywhere |
 | **Tamper-proof deployments** | Immutable Infrastructure | No configuration drift; every deploy is identical |
 | **Binary tampering detection** | File Integrity Monitoring (FIM) | Critical binaries checksummed every 5 minutes; tampering triggers alerts |
-| **Aggressive secret rotation** | Automated Key Rotation | mTLS certificates and internal tokens have 7-day lifespans with 2-hour rotation checks |
+| **Automatic cert rotation** | Rotated on every cold start | Fresh mTLS certs (7-day lifespan) and bearer token generated before each VM boot |
 
 **Built on validated standards:**
 - HSM key protection: [FIPS 140-2 Level 3](https://cloud.google.com/security/compliance/fips-140-2-validated)
@@ -70,15 +73,29 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 
 ## Quick Start
 
+### Prerequisites
+
+- Go 1.25+
+- A GCP project with billing enabled
+- `gcloud` CLI authenticated (`gcloud auth application-default login`)
+
+### Install and deploy
+
 ```bash
-# Deploy infrastructure (requires GCS bucket for Terraform state)
-TFSTATE_BUCKET=your-bucket-name make deploy
+make install    # Builds binary → ~/.local/bin/private-llm
+private-llm up  # Prompts for project, provisions infrastructure, generates mTLS certs
+```
 
-# Build agent and generate config
-make install
+On first run with no config file, `up` infers your GCP project from `gcloud config`, prompts to confirm, and saves `~/.config/private-llm/agent.json`. Everything else has sensible defaults. You can also pass flags directly:
 
-# Start the agent (acts as Ollama on localhost:11434)
-private-llm-agent
+```bash
+private-llm up --project-id=my-project --zone=us-central1-a --machine-type=g2-standard-8
+```
+
+### Start the proxy
+
+```bash
+private-llm   # Listens on localhost:11434 (Ollama-compatible)
 ```
 
 Now use any Ollama-compatible tool -- no API keys, no config changes:
@@ -87,16 +104,13 @@ Now use any Ollama-compatible tool -- no API keys, no config changes:
 ollama list                  # List models (starts VM automatically)
 ollama pull llama3.2:1b      # Pull a model
 ollama run llama3.2:1b       # Chat
-
-# Or use curl directly
-curl http://localhost:11434/api/tags
 ```
 
-Ctrl+C the agent to clean up the firewall rule. The VM auto-stops after idle timeout.
+Ctrl+C to shut down. The firewall rule is deleted automatically. The VM auto-stops after the idle timeout.
 
 ## Use with Coding Agents
 
-The agent speaks the Ollama API on localhost, so any coding agent that supports Ollama works out of the box:
+Private LLM speaks the Ollama API on localhost, so any coding agent that supports Ollama works out of the box:
 
 ```bash
 ollama launch claude       # Claude Code
@@ -108,6 +122,45 @@ All traffic stays on your infrastructure -- same mTLS encryption, same zero-logg
 
 See the [full list of Ollama integrations](https://docs.ollama.com/integrations) for more tools you can use.
 
+## CLI Reference
+
+```
+Usage: private-llm [command] [flags]
+
+Commands:
+  serve            Start the proxy server (default)
+  up               Provision or reconcile infrastructure + generate certs
+  down             Destroy all infrastructure
+  preview          Show what infrastructure changes would be made
+  restart-vm       Stop the VM, rotate certs, and start it again
+  reset-vm         Delete the VM and recreate it from scratch
+  rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
+
+Global flags:
+  -port int        Listen port for serve mode (default 11434)
+  -config string   Path to agent.json (default ~/.config/private-llm/agent.json)
+  -allow-all       Allow all IPs in firewall instead of just yours
+```
+
+Running `private-llm` with no arguments is equivalent to `private-llm serve`.
+
+### `private-llm up` flags
+
+All config values can be passed as flags to `up`. They override the config file and are saved for future commands.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--project-id` | Inferred from `gcloud config` | GCP project ID |
+| `--zone` | `us-central1-a` | GCP zone (determines GPU availability) |
+| `--vm-name` | `private-llm-vm` | VM instance name |
+| `--network` | `private-llm` | VPC network name |
+| `--region` | Derived from zone | GCP region |
+| `--machine-type` | `g4-standard-48` | VM machine type (determines GPU) |
+| `--default-model` | `qwen3-coder-next:q8_0` | Model to pull and warm on boot |
+| `--context-length` | `262144` | Ollama context window size |
+| `--idle-timeout` | `300` | Seconds of idle before VM auto-stops |
+| `--subnet-cidr` | `10.10.0.0/24` | VPC subnet CIDR |
+
 ## Architecture
 
 ### How It Works
@@ -117,45 +170,82 @@ Tool (Ollama CLI, etc.)
   |
   | HTTP (localhost only)
   v
-Local Agent (:11434)
-  |  - Starts VM if stopped
+private-llm (:11434)
   |  - Opens firewall for your IP
-  |  - Loads mTLS certs from Secret Manager
-  |  - Updates Firestore heartbeat
+  |  - Rotates certs if VM is stopped
+  |  - Starts VM if needed
+  |  - Loads mTLS certs from local disk
   |
   | mTLS (TLS 1.3, 4096-bit RSA)
   v
 Shielded GPU VM (:8080)
-  |  - Caddy validates mTLS + internal token
+  |  - Caddy validates mTLS + bearer token
   v
 Ollama
 ```
 
 No cloud proxy, no load balancer, no function in the data path. The mTLS tunnel goes directly from your machine to the VM.
 
+### Infrastructure (Pulumi)
+
+All infrastructure is defined as Go code using the [Pulumi Automation API](https://www.pulumi.com/docs/using-pulumi/automation-api/) -- no Terraform, no Pulumi CLI, no external tools. Everything is embedded in the single `private-llm` binary.
+
+`private-llm up` provisions:
+- **VPC + Subnet** with Private Google Access
+- **KMS KeyRing + CryptoKey** (HSM-backed, 90-day auto-rotation)
+- **4 Secrets** in Secret Manager (CA cert, server cert, server key, bearer token) -- encrypted with KMS
+- **Service Account** for the VM (minimal permissions: logging + monitoring)
+- **Shielded GPU VM** (Spot instance, Secure Boot, vTPM, Hyperdisk Balanced)
+
+State is stored locally at `~/.config/private-llm/state/`. No remote backend needed.
+
+### Split-Trust Certificate Model
+
+```
+~/.config/private-llm/certs/ (local only)     Secret Manager (cloud)
+├── ca.key    ← NEVER in cloud                ├── ca-cert (public only)
+├── ca.crt                                     ├── server-cert
+├── client.crt                                 ├── server-key
+├── client.key                                 └── internal-token
+└── token
+```
+
+The CA private key never leaves your machine. Even if GCP is fully compromised, an attacker cannot forge valid certificates. The CLI also pins the server certificate's SHA-256 fingerprint in memory, detecting impersonation even if the CA cert in Secret Manager is replaced.
+
 ### Scale to Zero
 
 ```mermaid
 flowchart LR
-    Request["Request"] --> Agent["Agent"]
-    Agent -->|"VM off?"| Start["Start VM"] --> VM
-    Agent -->|"VM on"| VM["GPU VM"]
+    Request["Request"] --> Proxy["private-llm"]
+    Proxy -->|"VM off?"| Start["Rotate certs → Start VM"] --> VM
+    Proxy -->|"VM on"| VM["GPU VM"]
     VM --> Response["Response"]
 
-    Scheduler["Every 5 min"] --> Check{"Idle?"}
+    Timer["Every 1 min"] --> Check{"Idle > timeout?"}
     Check -->|Yes| Stop["Stop VM<br/><i>$0 cost</i>"]
     Check -->|No| Keep["Keep running"]
 ```
 
-### Secret Rotation
+The VM monitors its own Caddy access log. If no requests arrive within the idle timeout (default 5 minutes), it shuts itself down. On the next request, the proxy starts it back up with fresh certificates. Only the first-ever boot gets a 30-minute grace period for package installation; subsequent boots check idle immediately.
 
-```mermaid
-flowchart LR
-    Scheduler["Every 2 hrs"] --> Check{"Cert expiring<br/>in < 24 hrs?"}
-    Check -->|Yes| Rotate["Generate new<br/>mTLS certs + tokens"]
-    Rotate --> Secrets["Secret Manager"]
-    Check -->|No| Skip["Skip"]
+### Certificate Rotation
+
+Certificates are rotated automatically whenever the VM is cold-started:
+
+1. CLI generates new server cert + key (7-day validity), client cert + key, and bearer token
+2. Server artifacts are written to Secret Manager; client artifacts are written to local disk
+3. VM boots and fetches fresh server certs from Secret Manager
+4. CLI pins the new server cert fingerprint in memory
+
+The CA certificate (10-year validity) is reused across rotations and only regenerated if nearing expiry.
+
+**Emergency CA rotation:** If you suspect your CA private key has been compromised, force-rotate the entire certificate chain:
+
+```bash
+private-llm rotate-mtls-ca   # Deletes CA, regenerates everything, pushes to Secret Manager
 ```
+
+This generates a new CA, new server/client certs, and a new bearer token. Restart the VM afterward to pick up the new server certs.
 
 ## Cost
 
@@ -163,7 +253,7 @@ flowchart LR
 - Storage (128GB Hyperdisk Balanced): ~$18/month
 
 **Variable costs** (only when running):
-- Spot VM with GPU: ~$0.25/hour (L4) or $1.80/hour (RTX 6000 Blackwell 96GB)
+- Spot VM with GPU: ~$0.25/hour (L4) or ~$1.80/hour (RTX 6000 Blackwell 96GB)
 
 | Monthly usage | L4 (24GB VRAM) | RTX 6000 Blackwell (96GB VRAM) |
 |---------------|----------------|------------------|
@@ -171,7 +261,7 @@ flowchart LR
 | **40 hours** (~10 hrs/week) | $28 | $90 |
 | **160 hours** (~40 hrs/week) | $58 | $306 |
 | **300 hours** (heavy use) | $92 | $557 |
-| **730 hours** (24/7) | $200 | $1331 |
+| **730 hours** (24/7) | $200 | $1,331 |
 
 *Spot pricing varies by region. Estimates based on us-central1.*
 
