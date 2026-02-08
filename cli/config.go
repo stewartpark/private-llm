@@ -47,7 +47,7 @@ func configPathOrDefault(path string) string {
 func loadConfig(path string) error {
 	path = configPathOrDefault(path)
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from known config dir
 	if err != nil {
 		return fmt.Errorf("config not found: %s\nRun 'private-llm up' to set up infrastructure", path)
 	}
@@ -67,7 +67,7 @@ func loadConfig(path string) error {
 // loadConfigFile loads config from file if it exists. Returns true if loaded.
 func loadConfigFile(path string) bool {
 	path = configPathOrDefault(path)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from known config dir
 	if err != nil {
 		return false
 	}

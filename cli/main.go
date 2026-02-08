@@ -73,7 +73,7 @@ func main() {
 		configPath := fs.String("config", "", "Path to agent.json")
 		allowAll := fs.Bool("allow-all", false, "Allow all IPs in firewall")
 		fs.Usage = usage
-		fs.Parse(args)
+		_ = fs.Parse(args)
 		if err := loadConfig(*configPath); err != nil {
 			log.Fatalf("config error: %v", err)
 		}
@@ -85,7 +85,7 @@ func main() {
 	case "down", "rotate-mtls-ca":
 		fs := flag.NewFlagSet("private-llm "+cmd, flag.ExitOnError)
 		configPath := fs.String("config", "", "Path to agent.json")
-		fs.Parse(args)
+		_ = fs.Parse(args)
 		if err := loadConfig(*configPath); err != nil {
 			log.Fatalf("config error: %v", err)
 		}
@@ -160,7 +160,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 		return
 	}
 
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	// Start server on the already-bound listener
 	go func() {
@@ -271,7 +271,7 @@ func sendStatus(ctx context.Context) {
 
 	// Cert/token age (from local disk — use NotBefore as creation time)
 	certDir := CertsDir()
-	if data, err := os.ReadFile(filepath.Join(certDir, "client.crt")); err == nil {
+	if data, err := os.ReadFile(filepath.Join(certDir, "client.crt")); err == nil { //nolint:gosec // path from known config dir
 		if block, _ := pem.Decode(data); block != nil {
 			if cert, parseErr := x509.ParseCertificate(block.Bytes); parseErr == nil {
 				u.CertCreated = cert.NotBefore
@@ -313,7 +313,7 @@ func runUp(ctx context.Context, args []string) {
 		fmt.Fprintf(os.Stderr, "Usage: private-llm up [flags]\n\nProvision or reconcile cloud infrastructure and generate mTLS certificates.\nOn first run, prompts for required values interactively.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	// ── Phase 1: Config + interactive prompts (normal terminal) ──
 
@@ -436,7 +436,7 @@ func runUp(ctx context.Context, args []string) {
 			return
 		}
 		hasVersions, err := secretHasVersions(ctx, smClient, "private-llm-server-cert")
-		smClient.Close()
+		_ = smClient.Close()
 		if err != nil {
 			opProg.Done(fmt.Errorf("check secrets: %w", err))
 			return

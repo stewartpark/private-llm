@@ -204,7 +204,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 		break
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Copy response headers
 	for key, values := range resp.Header {

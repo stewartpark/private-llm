@@ -419,14 +419,7 @@ func renderDashboard(m Model) string {
 // ── Boot Screen ──────────────────────────────────────────────────
 
 func renderBoot(m Model) string {
-	w := m.Width
-	if w <= 0 {
-		w = 80
-	}
-	h := m.Height
-	if h <= 0 {
-		h = 24
-	}
+	h := max(m.Height, 24)
 
 	var sb strings.Builder
 

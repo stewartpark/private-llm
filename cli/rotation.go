@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -93,7 +92,7 @@ func rotateCerts(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create secret manager client: %w", err)
 	}
-	defer smClient.Close()
+	defer smClient.Close() //nolint:errcheck
 
 	secrets := map[string][]byte{
 		"private-llm-server-cert":    serverCertPEM,
@@ -119,8 +118,8 @@ func ensureCA(certDir string) (caCertPEM, caKeyPEM []byte, err error) {
 	caCertPath := filepath.Join(certDir, "ca.crt")
 	caKeyPath := filepath.Join(certDir, "ca.key")
 
-	caCertPEM, certErr := os.ReadFile(caCertPath)
-	caKeyPEM, keyErr := os.ReadFile(caKeyPath)
+	caCertPEM, certErr := os.ReadFile(caCertPath) //nolint:gosec // path from known config dir
+	caKeyPEM, keyErr := os.ReadFile(caKeyPath)   //nolint:gosec // path from known config dir
 
 	if certErr == nil && keyErr == nil {
 		// Check expiry
@@ -141,7 +140,7 @@ func ensureCA(certDir string) (caCertPEM, caKeyPEM []byte, err error) {
 		return nil, nil, err
 	}
 
-	if err := os.WriteFile(caCertPath, caCertPEM, 0644); err != nil {
+	if err := os.WriteFile(caCertPath, caCertPEM, 0600); err != nil {
 		return nil, nil, fmt.Errorf("failed to write ca.crt: %w", err)
 	}
 	if err := os.WriteFile(caKeyPath, caKeyPEM, 0600); err != nil {
@@ -291,57 +290,6 @@ func generateToken(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-// validateCredentials ensures all generated credentials form valid cert chains.
-func validateCredentials(caCertPEM, serverCertPEM, serverKeyPEM, clientCertPEM, clientKeyPEM []byte) error {
-	caBlock, _ := pem.Decode(caCertPEM)
-	if caBlock == nil {
-		return fmt.Errorf("failed to decode CA cert PEM")
-	}
-	caCert, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse CA cert: %w", err)
-	}
-
-	roots := x509.NewCertPool()
-	roots.AddCert(caCert)
-
-	// Validate server cert chain
-	serverBlock, _ := pem.Decode(serverCertPEM)
-	if serverBlock == nil {
-		return fmt.Errorf("failed to decode server cert PEM")
-	}
-	serverCert, err := x509.ParseCertificate(serverBlock.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse server cert: %w", err)
-	}
-	if _, err := serverCert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
-		return fmt.Errorf("server cert verification failed: %w", err)
-	}
-
-	// Validate client cert chain
-	clientBlock, _ := pem.Decode(clientCertPEM)
-	if clientBlock == nil {
-		return fmt.Errorf("failed to decode client cert PEM")
-	}
-	clientCert, err := x509.ParseCertificate(clientBlock.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse client cert: %w", err)
-	}
-	if _, err := clientCert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return fmt.Errorf("client cert verification failed: %w", err)
-	}
-
-	// Validate key pairs
-	if _, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM); err != nil {
-		return fmt.Errorf("server cert/key pair invalid: %w", err)
-	}
-	if _, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM); err != nil {
-		return fmt.Errorf("client cert/key pair invalid: %w", err)
-	}
-
-	return nil
 }
 
 // secretHasVersions checks whether a Secret Manager secret already has at least one version.

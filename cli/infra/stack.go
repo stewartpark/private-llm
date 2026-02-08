@@ -50,8 +50,12 @@ func getOrCreateStack(ctx context.Context, cfg *InfraConfig, stateDir string) (a
 	}
 
 	// Set GCP config
-	s.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: cfg.ProjectID})
-	s.SetConfig(ctx, "gcp:region", auto.ConfigValue{Value: cfg.Region})
+	if err := s.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: cfg.ProjectID}); err != nil {
+		return auto.Stack{}, fmt.Errorf("failed to set gcp:project: %w", err)
+	}
+	if err := s.SetConfig(ctx, "gcp:region", auto.ConfigValue{Value: cfg.Region}); err != nil {
+		return auto.Stack{}, fmt.Errorf("failed to set gcp:region: %w", err)
+	}
 
 	return s, nil
 }
@@ -155,7 +159,7 @@ func Down(ctx context.Context, cfg *InfraConfig, stateDir string, w io.Writer) e
 	// Clean up state dir but keep certs
 	stateFiles, _ := filepath.Glob(filepath.Join(stateDir, "*"))
 	for _, f := range stateFiles {
-		os.RemoveAll(f)
+		_ = os.RemoveAll(f)
 	}
 
 	return nil
