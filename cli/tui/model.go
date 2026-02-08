@@ -110,12 +110,13 @@ type StatusData struct {
 	SourceIP       string
 	SourceIPRange  string
 
-	CertCreated      time.Time
-	CertAgeDays      int
-	CertAgeColor     string
-	TokenCreated     time.Time
-	TokenAgeDays     int
-	TokenAgeColor    string
+	CertCreated  time.Time
+	CertAge      time.Duration
+	CertAgeColor string
+
+	TokenCreated  time.Time
+	TokenAge      time.Duration
+	TokenAgeColor string
 	CAKeyLocation    string
 	EncryptionActive bool
 
@@ -347,24 +348,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func ageColor(d time.Duration) string {
+	if d >= 24*time.Hour {
+		return "red"
+	}
+	if d >= time.Hour {
+		return "yellow"
+	}
+	return "green"
+}
+
 func (m *Model) refreshTimers() {
 	if !m.Status.CertCreated.IsZero() {
-		days := int(time.Since(m.Status.CertCreated).Hours() / 24)
-		m.Status.CertAgeDays = days
-		if days >= 3 {
-			m.Status.CertAgeColor = "red"
-		} else {
-			m.Status.CertAgeColor = "green"
-		}
+		age := time.Since(m.Status.CertCreated)
+		m.Status.CertAge = age
+		m.Status.CertAgeColor = ageColor(age)
 	}
 	if !m.Status.TokenCreated.IsZero() {
-		days := int(time.Since(m.Status.TokenCreated).Hours() / 24)
-		m.Status.TokenAgeDays = days
-		if days >= 3 {
-			m.Status.TokenAgeColor = "red"
-		} else {
-			m.Status.TokenAgeColor = "green"
-		}
+		age := time.Since(m.Status.TokenCreated)
+		m.Status.TokenAge = age
+		m.Status.TokenAgeColor = ageColor(age)
 	}
 	m.updateIdleDisplay()
 }
@@ -428,24 +431,16 @@ func (m *Model) handleStatusUpdate(u StatusUpdate) {
 	if !u.CertCreated.IsZero() {
 		m.Status.CertCreated = u.CertCreated
 		m.Status.EncryptionActive = true
-		days := int(time.Since(u.CertCreated).Hours() / 24)
-		m.Status.CertAgeDays = days
-		if days >= 3 {
-			m.Status.CertAgeColor = "red"
-		} else {
-			m.Status.CertAgeColor = "green"
-		}
+		age := time.Since(u.CertCreated)
+		m.Status.CertAge = age
+		m.Status.CertAgeColor = ageColor(age)
 	}
 
 	if !u.TokenCreated.IsZero() {
 		m.Status.TokenCreated = u.TokenCreated
-		days := int(time.Since(u.TokenCreated).Hours() / 24)
-		m.Status.TokenAgeDays = days
-		if days >= 3 {
-			m.Status.TokenAgeColor = "red"
-		} else {
-			m.Status.TokenAgeColor = "green"
-		}
+		age := time.Since(u.TokenCreated)
+		m.Status.TokenAge = age
+		m.Status.TokenAgeColor = ageColor(age)
 	}
 
 	if u.IdleTimeout > 0 {
