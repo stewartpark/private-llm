@@ -19,10 +19,26 @@ import (
 var firewallRuleName = "private-llm-agent"
 
 var (
-	cachedPublicIP   string
-	cachedPublicIPMu sync.RWMutex
-	firewallAllowAll bool
+	cachedPublicIP     string
+	cachedPublicIPMu   sync.RWMutex
+	firewallAllowAll   bool
+	firewallIsActive   bool
+	firewallIsActiveMu sync.RWMutex
 )
+
+// IsFirewallActive returns whether the dynamic firewall rule is currently active.
+func IsFirewallActive() bool {
+	firewallIsActiveMu.RLock()
+	defer firewallIsActiveMu.RUnlock()
+	return firewallIsActive
+}
+
+// GetCachedPublicIP returns the last detected public IP.
+func GetCachedPublicIP() string {
+	cachedPublicIPMu.RLock()
+	defer cachedPublicIPMu.RUnlock()
+	return cachedPublicIP
+}
 
 // detectPublicIP fetches the user's current public IP address.
 func detectPublicIP() (string, error) {
@@ -88,6 +104,9 @@ func ensureFirewallOpen(ctx context.Context) error {
 	ranges := existing.GetSourceRanges()
 	if len(ranges) == 1 && ranges[0] == sourceRange {
 		log.Printf("[firewall] rule already allows %s", sourceRange)
+		firewallIsActiveMu.Lock()
+		firewallIsActive = true
+		firewallIsActiveMu.Unlock()
 		return nil
 	}
 
@@ -105,6 +124,9 @@ func ensureFirewallOpen(ctx context.Context) error {
 	}
 	_ = op
 	log.Printf("[firewall] rule updated")
+	firewallIsActiveMu.Lock()
+	firewallIsActive = true
+	firewallIsActiveMu.Unlock()
 	return nil
 }
 
@@ -138,6 +160,9 @@ func createFirewallRule(ctx context.Context, client *compute.FirewallsClient, so
 	}
 	_ = op
 	log.Printf("[firewall] rule created")
+	firewallIsActiveMu.Lock()
+	firewallIsActive = true
+	firewallIsActiveMu.Unlock()
 	return nil
 }
 
@@ -161,6 +186,9 @@ func removeFirewall(ctx context.Context) {
 	} else {
 		log.Printf("[firewall] rule deleted")
 	}
+	firewallIsActiveMu.Lock()
+	firewallIsActive = false
+	firewallIsActiveMu.Unlock()
 }
 
 func strPtr(s string) *string {

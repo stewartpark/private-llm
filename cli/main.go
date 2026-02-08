@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -12,10 +15,17 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"github.com/stewartpark/private-llm/cli/infra"
+	"github.com/stewartpark/private-llm/cli/tui"
 )
+
+// tuiProg is the global TUI program, set during runServe for proxy access.
+var tuiProg *tui.Program
 
 func isAddrInUse(err error) bool {
 	var opErr *net.OpError
@@ -32,9 +42,6 @@ Commands:
   serve            Start the proxy server (default)
   up               Provision or reconcile infrastructure + generate certs
   down             Destroy all infrastructure
-  preview          Show what infrastructure changes would be made
-  restart-vm       Stop the VM, rotate certs, and start it again
-  reset-vm         Delete the VM and recreate it from scratch
   rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
 
 Run 'private-llm <command> --help' for command-specific flags.
@@ -77,7 +84,7 @@ func main() {
 	case "up":
 		runUp(ctx, args)
 
-	case "down", "preview", "restart-vm", "reset-vm", "rotate-mtls-ca":
+	case "down", "rotate-mtls-ca":
 		fs := flag.NewFlagSet("private-llm "+cmd, flag.ExitOnError)
 		configPath := fs.String("config", "", "Path to agent.json")
 		fs.Parse(args)
@@ -87,12 +94,6 @@ func main() {
 		switch cmd {
 		case "down":
 			runDown(ctx)
-		case "preview":
-			runPreview(ctx)
-		case "restart-vm":
-			runRestartVM(ctx)
-		case "reset-vm":
-			runResetVM(ctx)
 		case "rotate-mtls-ca":
 			runRotateCA(ctx)
 		}
@@ -104,38 +105,176 @@ func main() {
 	}
 }
 
+// ── serve ────────────────────────────────────────────────────────
+
 func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAllIPs bool) {
 	firewallAllowAll = allowAllIPs
-	log.Printf("[agent] project=%s zone=%s vm=%s network=%s", cfg.ProjectID, cfg.Zone, cfg.VMName, cfg.Network)
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// Create fullscreen TUI
+	tuiProg = tui.NewProgram()
 
+	// Start TUI in a goroutine — Run() blocks and must be running
+	// before any Send() calls (bubbletea's msg channel is nil until Run starts).
+	tuiDone := make(chan error, 1)
+	go func() {
+		tuiDone <- tuiProg.Start()
+	}()
+
+	// Wait for bubbletea to initialize its message channel
+	tuiProg.WaitReady()
+
+	// NOW safe to redirect logs and send messages
+	logWriter := tuiProg.LogWriter()
+	log.SetOutput(logWriter)
+	log.SetFlags(log.Ltime)
+	defer func() {
+		logWriter.Close()
+		log.SetOutput(os.Stderr)
+		log.SetFlags(log.LstdFlags)
+	}()
+
+	log.Printf("[agent] project=%s zone=%s vm=%s", cfg.ProjectID, cfg.Zone, cfg.VMName)
+
+	// Send static config for dashboard display
+	tuiProg.SetConfig(tui.ConfigMsg{
+		Network:       cfg.Network,
+		ListenAddr:    fmt.Sprintf("127.0.0.1:%d", port),
+		Provider:      "GCP",
+		MachineType:   cfg.MachineType,
+		Zone:          cfg.Zone,
+		ModelName:     cfg.DefaultModel,
+		ContextLength: cfg.ContextLength,
+	})
+
+	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", proxyHandler)
-
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	server := &http.Server{Addr: addr, Handler: mux}
 
+	// Start server
 	go func() {
-		sig := <-sigCh
-		log.Printf("[agent] received %v, shutting down...", sig)
-
-		removeFirewall(ctx)
-
-		_ = server.Close()
-		cancel()
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			if isAddrInUse(err) {
+				tuiProg.Done(fmt.Errorf("port %d already in use — stop Ollama first", port))
+				return
+			}
+			tuiProg.Done(fmt.Errorf("server error: %v", err))
+		}
 	}()
 
-	log.Printf("[agent] listening on %s", addr)
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		if isAddrInUse(err) {
-			log.Fatalf("port %d is already in use — stop Ollama first, since this agent acts as Ollama.", port)
-		}
-		log.Fatalf("server error: %v", err)
+	// Signal handling
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Polling
+	pollCtx, pollCancel := context.WithCancel(ctx)
+
+	shutdown := sync.OnceFunc(func() {
+		pollCancel()
+		removeFirewall(ctx)
+		_ = server.Close()
+		cancel()
+	})
+
+	go func() {
+		<-sigCh
+		shutdown()
+		tuiProg.Quit()
+	}()
+
+	// Start status polling
+	go pollLoop(pollCtx)
+
+	// Handle TUI-triggered actions (r/R/S shortcuts)
+	go handleActions(ctx)
+
+	// Skip boot animation — go straight to dashboard
+	tuiProg.SetView(tui.ViewDashboard)
+
+	// Wait for TUI to exit
+	if err := <-tuiDone; err != nil {
+		fmt.Fprintf(os.Stderr, "[tui] error: %v\n", err)
 	}
-	log.Printf("[agent] shutdown complete")
+
+	// After alt screen clears, print any error to stderr so user can see it
+	if exitErr := tuiProg.ExitError(); exitErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr)
+	}
+
+	shutdown()
 }
+
+// pollLoop sends status updates to the TUI every 5 seconds.
+func pollLoop(ctx context.Context) {
+	// Immediate first poll
+	sendStatus(ctx)
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sendStatus(ctx)
+		}
+	}
+}
+
+// sendStatus gathers VM/cert/firewall status and sends it to the TUI.
+func sendStatus(ctx context.Context) {
+	if tuiProg == nil {
+		return
+	}
+
+	var u tui.StatusUpdate
+
+	// VM status
+	stopped, err := isVMStopped(ctx)
+	if err != nil {
+		u.VMStatus = "NOT FOUND"
+		log.Printf("[poll] VM status check: %v", err)
+	} else if stopped {
+		u.VMStatus = "STOPPED"
+	} else {
+		u.VMStatus = "RUNNING"
+	}
+
+	// External IP
+	u.ExternalIP = getExternalIP(nil)
+
+	// Firewall
+	u.Firewall = IsFirewallActive()
+	u.SourceIP = GetCachedPublicIP()
+
+	// Cert/token age (from local disk — use NotBefore as creation time)
+	certDir := CertsDir()
+	if data, err := os.ReadFile(filepath.Join(certDir, "client.crt")); err == nil {
+		if block, _ := pem.Decode(data); block != nil {
+			if cert, parseErr := x509.ParseCertificate(block.Bytes); parseErr == nil {
+				u.CertCreated = cert.NotBefore
+			}
+		}
+	}
+
+	// Token was created at same time as cert
+	u.TokenCreated = u.CertCreated
+
+	// Idle time = time since last proxied request
+	if lastReq := GetLastRequestTime(); !lastReq.IsZero() {
+		u.IdleTime = time.Since(lastReq)
+	}
+	u.IdleTimeout = time.Duration(cfg.IdleTimeout) * time.Second
+
+	// Token counts (atomic, updated in real time by proxy)
+	u.InputTokens, u.OutputTokens = GetTokenCounts()
+
+	tuiProg.SendStatus(u)
+}
+
+// ── up ───────────────────────────────────────────────────────────
 
 func runUp(ctx context.Context, args []string) {
 	fs := flag.NewFlagSet("private-llm up", flag.ExitOnError)
@@ -156,10 +295,10 @@ func runUp(ctx context.Context, args []string) {
 	}
 	fs.Parse(args)
 
-	// Load existing config as baseline (not required to exist)
+	// ── Phase 1: Config + interactive prompts (normal terminal) ──
+
 	existed := loadConfigFile(*pConfigPath)
 
-	// CLI flags override config file
 	if *pProjectID != "" {
 		cfg.ProjectID = *pProjectID
 	}
@@ -191,14 +330,12 @@ func runUp(ctx context.Context, args []string) {
 		cfg.SubnetCIDR = *pSubnetCIDR
 	}
 
-	// Infer project ID from gcloud if not set
 	if cfg.ProjectID == "" {
 		if p := inferProjectID(); p != "" {
 			cfg.ProjectID = p
 		}
 	}
 
-	// Interactive prompt when no config file exists
 	if !existed {
 		fmt.Println("\nSetting up Private LLM...")
 		cfg.ProjectID = promptString("GCP Project ID", cfg.ProjectID)
@@ -206,92 +343,157 @@ func runUp(ctx context.Context, args []string) {
 		fmt.Println()
 	}
 
-	// Apply defaults for everything else
 	applyDefaults()
 
 	if cfg.ProjectID == "" {
 		log.Fatalf("project_id is required.\nUse --project-id or run: gcloud config set project <PROJECT_ID>")
 	}
 
-	// Save config for future commands
-	p := configPathOrDefault(*pConfigPath)
 	if err := saveConfig(*pConfigPath); err != nil {
 		log.Fatalf("failed to save config: %v", err)
 	}
-	log.Printf("[up] config saved to %s", p)
 
-	// Provision infrastructure
-	log.Printf("[up] provisioning infrastructure...")
+	// ── Phase 2: Fullscreen TUI ──
 
-	if err := infra.Up(ctx, newInfraConfig(), StateDir()); err != nil {
-		log.Fatalf("up failed: %v", err)
+	opProg := tui.NewOperationProgram(tui.OpKindUp)
+
+	tuiDone := make(chan error, 1)
+	go func() { tuiDone <- opProg.Start() }()
+	opProg.WaitReady()
+
+	logWriter := opProg.LogWriter()
+	log.SetOutput(logWriter)
+	log.SetFlags(log.Ltime)
+	defer func() {
+		logWriter.Close()
+		log.SetOutput(os.Stderr)
+		log.SetFlags(log.LstdFlags)
+	}()
+
+	log.Printf("[up] config saved to %s", configPathOrDefault(*pConfigPath))
+
+	// Background goroutine: preview → confirm → up → certs → done
+	go func() {
+		// Preview
+		opProg.SetPhase(tui.OpPhasePreview)
+		opProg.SetStep("Previewing infrastructure changes...")
+		result, err := infra.Preview(ctx, newInfraConfig(), StateDir(), logWriter)
+		if err != nil {
+			opProg.Done(fmt.Errorf("preview failed: %w", err))
+			return
+		}
+
+		// Check if there are actual changes
+		summary := make(map[string]int)
+		for k, v := range result.ChangeSummary {
+			summary[string(k)] = v
+		}
+		hasChanges := summary["create"] > 0 || summary["update"] > 0 || summary["delete"] > 0
+
+		if hasChanges {
+			// Confirm
+			opProg.SetSummary(summary)
+			opProg.SetPhase(tui.OpPhaseConfirm)
+			if !opProg.WaitConfirm(ctx) {
+				return // user cancelled — model handles done/quit
+			}
+		}
+
+		// Apply
+		opProg.SetPhase(tui.OpPhaseApply)
+		opProg.SetStep("Provisioning infrastructure...")
+		if err := infra.Up(ctx, newInfraConfig(), StateDir(), logWriter); err != nil {
+			opProg.Done(fmt.Errorf("up failed: %w", err))
+			return
+		}
+
+		// Certs
+		opProg.SetPhase(tui.OpPhaseCerts)
+		opProg.SetStep("Checking certificates...")
+		smClient, err := secretmanager.NewClient(ctx)
+		if err != nil {
+			opProg.Done(fmt.Errorf("secret manager: %w", err))
+			return
+		}
+		hasVersions, err := secretHasVersions(ctx, smClient, "private-llm-server-cert")
+		smClient.Close()
+		if err != nil {
+			opProg.Done(fmt.Errorf("check secrets: %w", err))
+			return
+		}
+
+		if hasVersions {
+			log.Printf("[up] secrets already exist, skipping cert generation")
+		} else {
+			opProg.SetStep("Generating certificates...")
+			if err := rotateCerts(ctx); err != nil {
+				opProg.Done(fmt.Errorf("cert generation: %w", err))
+				return
+			}
+			log.Printf("[up] certs saved to: %s", CertsDir())
+		}
+
+		log.Printf("[up] infrastructure provisioned successfully")
+		log.Printf("[up] run 'private-llm' to start the proxy")
+		opProg.Done(nil)
+	}()
+
+	if err := <-tuiDone; err != nil {
+		fmt.Fprintf(os.Stderr, "[tui] error: %v\n", err)
 	}
-
-	// Generate certs after infra is provisioned
-	log.Printf("[up] generating certificates...")
-	if err := rotateCerts(ctx); err != nil {
-		log.Fatalf("cert generation failed: %v", err)
+	if exitErr := opProg.ExitError(); exitErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr)
+		os.Exit(1)
 	}
-
-	log.Printf("[up] infrastructure provisioned and certs generated")
-	log.Printf("[up] certs at: %s", CertsDir())
-	log.Printf("[up] run 'private-llm' to start the proxy")
 }
+
+// ── down ─────────────────────────────────────────────────────────
 
 func runDown(ctx context.Context) {
-	log.Printf("[down] destroying infrastructure...")
+	opProg := tui.NewOperationProgram(tui.OpKindDown)
 
-	if err := infra.Down(ctx, newInfraConfig(), StateDir()); err != nil {
-		log.Fatalf("down failed: %v", err)
+	tuiDone := make(chan error, 1)
+	go func() { tuiDone <- opProg.Start() }()
+	opProg.WaitReady()
+
+	logWriter := opProg.LogWriter()
+	log.SetOutput(logWriter)
+	log.SetFlags(log.Ltime)
+	defer func() {
+		logWriter.Close()
+		log.SetOutput(os.Stderr)
+		log.SetFlags(log.LstdFlags)
+	}()
+
+	go func() {
+		// Confirm
+		opProg.SetPhase(tui.OpPhaseConfirm)
+		if !opProg.WaitConfirm(ctx) {
+			return
+		}
+
+		// Destroy
+		opProg.SetPhase(tui.OpPhaseDestroy)
+		opProg.SetStep("Destroying infrastructure...")
+		if err := infra.Down(ctx, newInfraConfig(), StateDir(), logWriter); err != nil {
+			opProg.Done(fmt.Errorf("down failed: %w", err))
+			return
+		}
+
+		log.Printf("[down] infrastructure destroyed")
+		opProg.Done(nil)
+	}()
+
+	if err := <-tuiDone; err != nil {
+		fmt.Fprintf(os.Stderr, "[tui] error: %v\n", err)
 	}
-
-	log.Printf("[down] infrastructure destroyed")
+	if exitErr := opProg.ExitError(); exitErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr)
+		os.Exit(1)
+	}
 }
 
-func runRestartVM(ctx context.Context) {
-	log.Printf("[restart-vm] stopping VM...")
-	if err := stopVM(ctx); err != nil {
-		log.Fatalf("stop failed: %v", err)
-	}
-
-	log.Printf("[restart-vm] rotating certificates...")
-	if err := rotateCerts(ctx); err != nil {
-		log.Fatalf("cert rotation failed: %v", err)
-	}
-
-	log.Printf("[restart-vm] ensuring firewall open...")
-	if err := ensureFirewallOpen(ctx); err != nil {
-		log.Fatalf("firewall setup failed: %v", err)
-	}
-
-	log.Printf("[restart-vm] starting VM...")
-	ip, err := ensureVMRunning(ctx)
-	if err != nil {
-		log.Fatalf("start failed: %v", err)
-	}
-
-	removeFirewall(ctx)
-	log.Printf("[restart-vm] VM restarted at %s", ip)
-}
-
-func runResetVM(ctx context.Context) {
-	log.Printf("[reset-vm] deleting VM...")
-	if err := deleteVM(ctx); err != nil {
-		log.Fatalf("delete failed: %v", err)
-	}
-
-	log.Printf("[reset-vm] rotating certificates...")
-	if err := rotateCerts(ctx); err != nil {
-		log.Fatalf("cert rotation failed: %v", err)
-	}
-
-	log.Printf("[reset-vm] recreating VM via Pulumi...")
-	if err := infra.Up(ctx, newInfraConfig(), StateDir()); err != nil {
-		log.Fatalf("recreate failed: %v", err)
-	}
-
-	log.Printf("[reset-vm] VM recreated")
-}
+// ── rotate-mtls-ca ───────────────────────────────────────────────
 
 func runRotateCA(ctx context.Context) {
 	certDir := CertsDir()
@@ -313,13 +515,81 @@ func runRotateCA(ctx context.Context) {
 	log.Printf("[rotate-ca] restart the VM to pick up new server certs")
 }
 
-func runPreview(ctx context.Context) {
-	log.Printf("[preview] previewing infrastructure changes...")
+// ── TUI action handler ───────────────────────────────────────────
 
-	if err := infra.Preview(ctx, newInfraConfig(), StateDir()); err != nil {
-		log.Fatalf("preview failed: %v", err)
+func handleActions(ctx context.Context) {
+	for action := range tuiProg.Actions() {
+		switch action {
+		case tui.ActionRestartVM:
+			tuiProg.Send(tui.ActionStartMsg{Label: "Restarting VM..."})
+			err := doRestartVM(ctx)
+			tuiProg.Send(tui.ActionDoneMsg{Err: err})
+
+		case tui.ActionResetVM:
+			tuiProg.Send(tui.ActionStartMsg{Label: "Resetting VM..."})
+			err := doResetVM(ctx)
+			tuiProg.Send(tui.ActionDoneMsg{Err: err})
+
+		case tui.ActionStopVM:
+			tuiProg.Send(tui.ActionStartMsg{Label: "Stopping VM..."})
+			err := stopVM(ctx)
+			tuiProg.Send(tui.ActionDoneMsg{Err: err})
+
+		case tui.ActionStartVM:
+			tuiProg.Send(tui.ActionStartMsg{Label: "Starting VM..."})
+			err := doStartVM(ctx)
+			tuiProg.Send(tui.ActionDoneMsg{Err: err})
+		}
 	}
 }
+
+func doRestartVM(ctx context.Context) error {
+	if err := stopVM(ctx); err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+	if err := rotateCerts(ctx); err != nil {
+		return fmt.Errorf("rotate certs: %w", err)
+	}
+	if err := ensureFirewallOpen(ctx); err != nil {
+		return fmt.Errorf("firewall: %w", err)
+	}
+	if _, err := ensureVMRunning(ctx); err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+	removeFirewall(ctx)
+	return nil
+}
+
+func doResetVM(ctx context.Context) error {
+	if err := deleteVM(ctx); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if err := rotateCerts(ctx); err != nil {
+		return fmt.Errorf("rotate certs: %w", err)
+	}
+	// Use the serve TUI's log writer for Pulumi output
+	var w io.Writer = os.Stdout
+	if tuiProg != nil {
+		w = tuiProg.LogWriter()
+	}
+	if err := infra.Up(ctx, newInfraConfig(), StateDir(), w); err != nil {
+		return fmt.Errorf("recreate: %w", err)
+	}
+	return nil
+}
+
+func doStartVM(ctx context.Context) error {
+	if err := ensureFirewallOpen(ctx); err != nil {
+		return fmt.Errorf("firewall: %w", err)
+	}
+	if _, err := ensureVMRunning(ctx); err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+	removeFirewall(ctx)
+	return nil
+}
+
+// ── helpers ──────────────────────────────────────────────────────
 
 func newInfraConfig() *infra.InfraConfig {
 	return &infra.InfraConfig{

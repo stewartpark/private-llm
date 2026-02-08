@@ -1,5 +1,17 @@
+# Claude / Codex settings
 .claude/
-bin/
 
-!README.md
-!CHANGELOG.md
+# Build output
+bin/
+cli/cli
+
+# Local state (may contain sensitive data)
+.config/private-llm/state/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
