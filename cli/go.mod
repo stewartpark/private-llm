@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.7.1
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.16.0
 	github.com/pulumi/pulumi/sdk/v3 v3.159.0
+	golang.org/x/oauth2 v0.35.0
 	google.golang.org/api v0.256.0
 )
 
@@ -102,7 +103,6 @@ require (
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/oauth2 v0.33.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/term v0.36.0 // indirect
