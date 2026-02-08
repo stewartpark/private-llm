@@ -110,17 +110,15 @@ Ctrl+C to shut down. The firewall rule is deleted automatically. The VM auto-sto
 
 ## Use with Coding Agents
 
-Private LLM speaks the Ollama API on localhost, so any coding agent that supports Ollama works out of the box:
+Private LLM speaks the Ollama API on localhost, so any tool that supports Ollama works out of the box -- coding agents, chat UIs, IDE extensions. Same enterprise-grade privacy, even when an agent is reading your entire codebase.
 
 ```bash
 ollama launch claude       # Claude Code
 ollama launch codex        # OpenAI Codex
-ollama launch openclaw     # OpenClaw
+ollama launch opencode      # OpenCode
 ```
 
-All traffic stays on your infrastructure -- same mTLS encryption, same zero-logging guarantees, even when an agent is reading your entire codebase.
-
-See the [full list of Ollama integrations](https://docs.ollama.com/integrations) for more tools you can use.
+See [`ollama launch`](https://github.com/ollama/ollama/blob/main/docs/launch.md) and the [full list of Ollama integrations](https://ollama.com/blog/tool-support) for more tools.
 
 ## CLI Reference
 
@@ -131,9 +129,6 @@ Commands:
   serve            Start the proxy server (default)
   up               Provision or reconcile infrastructure + generate certs
   down             Destroy all infrastructure
-  preview          Show what infrastructure changes would be made
-  restart-vm       Stop the VM, rotate certs, and start it again
-  reset-vm         Delete the VM and recreate it from scratch
   rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
 
 Global flags:
@@ -144,7 +139,20 @@ Global flags:
 
 Running `private-llm` with no arguments is equivalent to `private-llm serve`.
 
-### `private-llm up` flags
+### Dashboard Shortcuts
+
+The `serve` command launches a fullscreen terminal dashboard with live status, token throughput, and a request log. Keyboard shortcuts:
+
+| Key | Action |
+|-----|--------|
+| `q` / `Esc` / `Ctrl+C` | Quit (deletes firewall rule, VM auto-stops on idle) |
+| `r` | Restart VM (stop, rotate certs, start) |
+| `R` | Reset VM (delete and recreate from scratch) |
+| `S` | Stop or start VM (toggles based on current state) |
+
+### `private-llm up`
+
+Provisions infrastructure with a preview-confirm-apply flow. Shows a diff of what will change, asks for confirmation, then applies. Certificates are only generated on first run; subsequent runs skip cert generation if secrets already exist.
 
 All config values can be passed as flags to `up`. They override the config file and are saved for future commands.
 
@@ -166,14 +174,14 @@ All config values can be passed as flags to `up`. They override the config file 
 ### How It Works
 
 ```
-Tool (Ollama CLI, etc.)
+Tool (Ollama CLI, coding agent, etc.)
   |
   | HTTP (localhost only)
   v
-private-llm (:11434)
-  |  - Opens firewall for your IP
-  |  - Rotates certs if VM is stopped
-  |  - Starts VM if needed
+private-llm (:11434)               ← Fullscreen TUI dashboard
+  |  - Opens firewall for your IP     - Live token counting (in/out/tok/s)
+  |  - Rotates certs if VM is stopped - Request log with latency
+  |  - Starts VM if needed            - VM/cert/firewall status
   |  - Loads mTLS certs from local disk
   |
   | mTLS (TLS 1.3, 4096-bit RSA)
@@ -185,6 +193,8 @@ Ollama
 ```
 
 No cloud proxy, no load balancer, no function in the data path. The mTLS tunnel goes directly from your machine to the VM.
+
+The proxy counts tokens in real time across all supported API styles (Ollama, OpenAI Chat, Anthropic Messages, OpenAI Responses) and displays live throughput in the dashboard.
 
 ### Infrastructure (Pulumi)
 
@@ -217,27 +227,30 @@ The CA private key never leaves your machine. Even if GCP is fully compromised, 
 ```mermaid
 flowchart LR
     Request["Request"] --> Proxy["private-llm"]
-    Proxy -->|"VM off?"| Start["Rotate certs → Start VM"] --> VM
+    Proxy -->|"VM off?"| FW["Open firewall for your IP"] --> Rotate["Rotate certs"] --> Start["Start VM"] --> VM
     Proxy -->|"VM on"| VM["GPU VM"]
     VM --> Response["Response"]
 
     Timer["Every 1 min"] --> Check{"Idle > timeout?"}
     Check -->|Yes| Stop["Stop VM<br/><i>$0 cost</i>"]
     Check -->|No| Keep["Keep running"]
+
+    Quit["Ctrl+C / quit"] --> Cleanup["Delete firewall rule"]
 ```
 
-The VM monitors its own Caddy access log. If no requests arrive within the idle timeout (default 5 minutes), it shuts itself down. On the next request, the proxy starts it back up with fresh certificates. Only the first-ever boot gets a 30-minute grace period for package installation; subsequent boots check idle immediately.
+On the first request the CLI opens a dynamic firewall rule locked to your public IP, rotates all secrets (certs + token), then starts the VM. While running, the VM monitors its own Caddy access log — if no requests arrive within the idle timeout (default 5 minutes), it shuts itself down. On the next request, the CLI repeats the full cycle: firewall, rotate, start. When you quit the CLI (`Ctrl+C`, `q`, `Esc`), the firewall rule is deleted immediately. Only the first-ever boot gets a 30-minute grace period for package installation; subsequent boots check idle immediately.
 
-### Certificate Rotation
+### Secret Rotation
 
-Certificates are rotated automatically whenever the VM is cold-started:
+All secrets are rotated automatically on every cold start — every time the VM transitions from stopped to running:
 
-1. CLI generates new server cert + key (7-day validity), client cert + key, and bearer token
-2. Server artifacts are written to Secret Manager; client artifacts are written to local disk
-3. VM boots and fetches fresh server certs from Secret Manager
+1. CLI opens (or updates) a dynamic firewall rule locked to your current public IP
+2. CLI generates new server cert + key (7-day validity), client cert + key, and bearer token
+3. Server artifacts are written to Secret Manager; client artifacts are written to local disk
 4. CLI pins the new server cert fingerprint in memory
+5. VM boots and fetches fresh server certs + token from Secret Manager
 
-The CA certificate (10-year validity) is reused across rotations and only regenerated if nearing expiry.
+The CA certificate (10-year validity) is reused across rotations and only regenerated if nearing expiry. The firewall rule is deleted when the CLI exits.
 
 **Emergency CA rotation:** If you suspect your CA private key has been compromised, force-rotate the entire certificate chain:
 

@@ -122,8 +122,63 @@ func renderDashboard(m Model) string {
 		modelLine = kv("Model", m.ModelName+" ("+ctxStr+")", colorWhite)
 	}
 
+	// Token stats line for info panel
+	tokenLine := ""
+	{
+		const tokenFlashDur = 2 * time.Second
+		inFlash := !m.InputTokensChangedAt.IsZero() && time.Since(m.InputTokensChangedAt) < tokenFlashDur
+		outFlash := !m.OutputTokensChangedAt.IsZero() && time.Since(m.OutputTokensChangedAt) < tokenFlashDur
+		pulse := time.Now().Second()%2 == 0
+
+		inTok := formatTokenCount(m.Status.InputTokens)
+		outTok := formatTokenCount(m.Status.OutputTokens)
+
+		inDot := lipgloss.NewStyle().Foreground(colorCyan).Render("●")
+		inValStyle := lipgloss.NewStyle().Foreground(colorCyan)
+		if inFlash {
+			if pulse {
+				inDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true).Render("●")
+			} else {
+				inDot = lipgloss.NewStyle().Foreground(colorCyan).Render("○")
+			}
+			inValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
+		}
+		inPart := inDot + lipgloss.NewStyle().Foreground(colorGray).Render(" In ") + inValStyle.Render(inTok)
+
+		outDot := lipgloss.NewStyle().Foreground(colorGreen).Render("●")
+		outValStyle := lipgloss.NewStyle().Foreground(colorGreen)
+		if outFlash {
+			if pulse {
+				outDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true).Render("●")
+			} else {
+				outDot = lipgloss.NewStyle().Foreground(colorGreen).Render("○")
+			}
+			outValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
+		}
+		outPart := outDot + lipgloss.NewStyle().Foreground(colorGray).Render(" Out ") + outValStyle.Render(outTok)
+
+		ratePart := ""
+		if m.CurrentTokPerSec > 0 {
+			rateStr := formatRate(m.CurrentTokPerSec)
+			if m.IsStreaming {
+				ratePart = lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("⚡ " + rateStr + " tok/s")
+			} else {
+				ratePart = lipgloss.NewStyle().Foreground(colorGray).Render(rateStr + " tok/s")
+			}
+			if m.MaxTokPerSec > 0 {
+				peakStr := formatRate(m.MaxTokPerSec)
+				ratePart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak " + peakStr + " tok/s)")
+			}
+		}
+
+		tokenLine = inPart + "   " + outPart
+		if ratePart != "" {
+			tokenLine += "   " + ratePart
+		}
+	}
+
 	// Build right-side info to sit beside logo
-	infoLines := []string{titleLine, addrLine, cloudLine, modelLine}
+	infoLines := []string{titleLine, addrLine, cloudLine, modelLine, tokenLine}
 
 	// Merge logo (left) and info (right) side by side
 	logoWidth := 0
@@ -174,34 +229,39 @@ func renderDashboard(m Model) string {
 		"  " + kv("Idle", idleVal+" / "+timeoutVal, idleColor)
 	top = append(top, row1)
 
-	// Row 2: Encryption — mTLS status, CA key, cert & token age
-	encIcon := "✓"
-	encColor := colorGreen
-	encLabel := "ACTIVE"
+	// Row 2: Privacy model
+	encColor := colorBlue
+	encLabel := "mTLS + Private CA + Cert Pinning"
 	if !m.Status.EncryptionActive {
-		encIcon = "✗"
 		encColor = colorRed
-		encLabel = "INACTIVE"
 	}
 	certVal := "—"
 	certColor := colorGray
 	if !m.Status.CertCreated.IsZero() {
-		certVal = fmt.Sprintf("%dd old", m.Status.CertAgeDays)
+		certVal = formatAge(m.Status.CertAge)
 		certColor = resolveColor(m.Status.CertAgeColor)
+	}
+	row2 := kvBold("Privacy", encLabel, encColor) +
+		"  " + kv("Cert Age", certVal, certColor)
+	top = append(top, row2)
+
+	// Row 3: Auth model
+	authColor := colorBlue
+	authLabel := "Token Auth (Bearer)"
+	if !m.Status.EncryptionActive {
+		authColor = colorRed
 	}
 	tokenVal := "—"
 	tokenColor := colorGray
 	if !m.Status.TokenCreated.IsZero() {
-		tokenVal = fmt.Sprintf("%dd old", m.Status.TokenAgeDays)
+		tokenVal = formatAge(m.Status.TokenAge)
 		tokenColor = resolveColor(m.Status.TokenAgeColor)
 	}
-	row2 := kvBold("mTLS 1.3", encIcon+" "+encLabel, encColor) +
-		"  " + kv("Cert", certVal, certColor) +
-		"  " + kv("Token", tokenVal, tokenColor) +
-		"  " + kv("CA Key", m.Status.CAKeyLocation, colorBlue)
-	top = append(top, row2)
+	row3 := kvBold("Auth", authLabel, authColor) +
+		"  " + kv("Token Age", tokenVal, tokenColor)
+	top = append(top, row3)
 
-	// Row 3: Firewall — status + source IP
+	// Row 4: Firewall — status + source IP
 	fwIcon := "✓"
 	fwColor := colorGreen
 	fwLabel := "OPEN"
@@ -213,72 +273,9 @@ func renderDashboard(m Model) string {
 	} else if m.Status.SourceIPRange != "" {
 		fwSrc = m.Status.SourceIPRange
 	}
-	row3 := kvBold("Firewall", fwIcon+" "+fwLabel, fwColor) +
+	row4 := kvBold("Firewall", fwIcon+" "+fwLabel, fwColor) +
 		"  " + kv("Source", fwSrc, colorWhite)
-	top = append(top, row3)
-
-	// Row 4: Token throughput with flash animation and tok/sec
-	const tokenFlashDur = 2 * time.Second
-	inFlash := !m.InputTokensChangedAt.IsZero() && time.Since(m.InputTokensChangedAt) < tokenFlashDur
-	outFlash := !m.OutputTokensChangedAt.IsZero() && time.Since(m.OutputTokensChangedAt) < tokenFlashDur
-	pulse := time.Now().Second()%2 == 0
-
-	inTok := formatTokenCount(m.Status.InputTokens)
-	outTok := formatTokenCount(m.Status.OutputTokens)
-	totalTok := formatTokenCount(m.Status.InputTokens + m.Status.OutputTokens)
-
-	// ● In — cyan dot, flash to bright white pulsing
-	inDot := lipgloss.NewStyle().Foreground(colorCyan).Render("●")
-	inValStyle := lipgloss.NewStyle().Foreground(colorCyan)
-	if inFlash {
-		if pulse {
-			inDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true).Render("●")
-		} else {
-			inDot = lipgloss.NewStyle().Foreground(colorCyan).Render("○")
-		}
-		inValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
-	}
-	inPart := inDot + lipgloss.NewStyle().Foreground(colorGray).Render(" In ") + inValStyle.Render(inTok)
-
-	// ● Out — green dot, flash to bright white pulsing
-	outDot := lipgloss.NewStyle().Foreground(colorGreen).Render("●")
-	outValStyle := lipgloss.NewStyle().Foreground(colorGreen)
-	if outFlash {
-		if pulse {
-			outDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true).Render("●")
-		} else {
-			outDot = lipgloss.NewStyle().Foreground(colorGreen).Render("○")
-		}
-		outValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
-	}
-	outPart := outDot + lipgloss.NewStyle().Foreground(colorGray).Render(" Out ") + outValStyle.Render(outTok)
-
-	// ⚡ tok/sec — live rate during streaming, last request rate otherwise
-	ratePart := ""
-	if m.CurrentTokPerSec > 0 {
-		rateStr := formatRate(m.CurrentTokPerSec)
-		if m.IsStreaming {
-			ratePart = lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("⚡ "+rateStr+" tok/s")
-		} else {
-			ratePart = lipgloss.NewStyle().Foreground(colorGray).Render(rateStr+" tok/s")
-		}
-		if m.MaxTokPerSec > 0 {
-			peakStr := formatRate(m.MaxTokPerSec)
-			ratePart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak "+peakStr+" tok/s)")
-		}
-	}
-
-	// Σ total — right aligned
-	totalPart := lipgloss.NewStyle().Foreground(colorGray).Render("Σ ") +
-		lipgloss.NewStyle().Foreground(colorCyan).Bold(true).Render(totalTok)
-
-	row4Left := inPart + "   " + outPart
-	if ratePart != "" {
-		row4Left += "   " + ratePart
-	}
-	top = append(top, twoCol(row4Left, totalPart, iw))
-
-	top = append(top, divider(iw))
+	top = append(top, row4)
 
 	// ── Requests (fixed: header + up to MaxRequestLog lines) ──
 	maxReqLines := m.MaxRequestLog
@@ -586,4 +583,25 @@ func formatDuration(d time.Duration) string {
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
 	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+func formatAge(d time.Duration) string {
+	total := int(d.Seconds())
+	if total < 0 {
+		total = 0
+	}
+	days := total / 86400
+	hours := (total % 86400) / 3600
+	mins := (total % 3600) / 60
+	secs := total % 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm %ds", days, hours, mins, secs)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm %ds", hours, mins, secs)
+	}
+	if mins > 0 {
+		return fmt.Sprintf("%dm %ds", mins, secs)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
