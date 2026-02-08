@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stewartpark/private-llm/cli/tui"
@@ -16,6 +17,7 @@ var (
 	setupMu         sync.Mutex
 	vmIP            string
 	rotatedOnce     bool
+	proxyReady      atomic.Bool
 	lastRequestTime time.Time
 	lastRequestMu   sync.RWMutex
 )
@@ -40,6 +42,7 @@ func ensureSetup(ctx context.Context) (string, error) {
 		}
 		log.Printf("[setup] VM is stopped, restarting full setup...")
 		vmIP = ""
+		proxyReady.Store(false)
 		rotatedOnce = false
 		invalidateTLSConfig()
 	}
@@ -60,6 +63,7 @@ func ensureSetup(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("failed to rotate certs: %w", err)
 		}
 		rotatedOnce = true
+		sendStatus(ctx)
 	}
 
 	ip, err := ensureVMRunning(ctx)
@@ -68,7 +72,18 @@ func ensureSetup(ctx context.Context) (string, error) {
 	}
 
 	vmIP = ip
+	proxyReady.Store(true)
 	return ip, nil
+}
+
+// IsProxyReady returns true if the proxy has successfully connected to the VM.
+func IsProxyReady() bool {
+	return proxyReady.Load()
+}
+
+// ClearProxyReady marks the proxy as not ready (e.g. when the VM stops externally).
+func ClearProxyReady() {
+	proxyReady.Store(false)
 }
 
 // GetLastRequestTime returns the time of the last completed proxy request.
@@ -78,11 +93,13 @@ func GetLastRequestTime() time.Time {
 	return lastRequestTime
 }
 
-// resetSetup forces re-running firewall + VM checks on next request.
-func resetSetup() {
-	setupMu.Lock()
+// resetProxyState clears cached proxy state so ensureSetup re-discovers the VM
+// on the next request. Must be called while holding setupMu.
+func resetProxyState() {
 	vmIP = ""
-	setupMu.Unlock()
+	proxyReady.Store(false)
+	rotatedOnce = false
+	invalidateTLSConfig()
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -143,8 +160,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[proxy] request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
 			// On first failure, reset setup so next attempt re-checks firewall/VM
 			if attempt == 0 {
-				resetSetup()
-				invalidateTLSConfig()
+				setupMu.Lock()
+				resetProxyState()
+				setupMu.Unlock()
 
 				// Re-run setup
 				newIP, setupErr := ensureSetup(ctx)

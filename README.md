@@ -5,9 +5,9 @@
 <h1 align="center">Private LLM</h1>
 
 <p align="center">
-  <strong>Enterprise-grade privacy. No hardware to buy. No lab to maintain.</strong><br>
-  A single binary that provisions GPU VMs, manages mTLS certificates, and proxies Ollama on localhost.<br>
-  Deploy in minutes. No one else sees your data.
+  <strong>Enterprise-grade security. Zero-trust architecture. No hardware to buy.</strong><br>
+  A single binary with mTLS, private CA, cert pinning, per-session secret rotation, IP-locked firewalls, and HSM-backed encryption — all provisioned automatically.<br>
+  Your data never touches a third party. Deploy in minutes.
 </p>
 
 ---
@@ -123,25 +123,24 @@ See [`ollama launch`](https://github.com/ollama/ollama/blob/main/docs/launch.md)
 ## CLI Reference
 
 ```
-Usage: private-llm [command] [flags]
+Usage: private-llm [flags]
+       private-llm <command> [flags]
+
+Flags:
+  -help            Display this message
+  -config string   Path to agent.json (default ~/.config/private-llm/agent.json)
+  -port int        Listen port (default 11434)
+  -allow-all       Allow all IPs in firewall instead of just yours
 
 Commands:
-  serve            Start the proxy server (default)
   up               Provision or reconcile infrastructure + generate certs
   down             Destroy all infrastructure
   rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
-
-Global flags:
-  -port int        Listen port for serve mode (default 11434)
-  -config string   Path to agent.json (default ~/.config/private-llm/agent.json)
-  -allow-all       Allow all IPs in firewall instead of just yours
 ```
-
-Running `private-llm` with no arguments is equivalent to `private-llm serve`.
 
 ### Dashboard Shortcuts
 
-The `serve` command launches a fullscreen terminal dashboard with live status, token throughput, and a request log. Keyboard shortcuts:
+`private-llm` launches a fullscreen terminal dashboard with live status, token throughput, and a request log. Keyboard shortcuts:
 
 | Key | Action |
 |-----|--------|
@@ -183,6 +182,7 @@ private-llm (:11434)               ← Fullscreen TUI dashboard
   |  - Rotates certs if VM is stopped - Request log with latency
   |  - Starts VM if needed            - VM/cert/firewall status
   |  - Loads mTLS certs from local disk
+  |  - Verifies server cert fingerprint (pinned)
   |
   | mTLS (TLS 1.3, 4096-bit RSA)
   v

@@ -36,10 +36,16 @@ func isAddrInUse(err error) bool {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Usage: private-llm [command] [flags]
+	fmt.Fprintf(os.Stderr, `Usage: private-llm [flags]
+       private-llm <command> [flags]
+
+Flags:
+  -help            Display this message
+  -config string   Path to agent.json (default ~/.config/private-llm/agent.json)
+  -port int        Listen port (default 11434)
+  -allow-all       Allow all IPs in firewall instead of just yours
 
 Commands:
-  serve            Start the proxy server (default)
   up               Provision or reconcile infrastructure + generate certs
   down             Destroy all infrastructure
   rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
@@ -54,8 +60,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	// First non-flag arg is the subcommand; default to serve
-	cmd := "serve"
+	// First non-flag arg is the subcommand; default to "" (serve)
+	cmd := ""
 	args := os.Args[1:]
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
@@ -66,15 +72,12 @@ func main() {
 	defer cancel()
 
 	switch cmd {
-	case "serve":
-		fs := flag.NewFlagSet("private-llm serve", flag.ExitOnError)
+	case "":
+		fs := flag.NewFlagSet("private-llm", flag.ExitOnError)
 		port := fs.Int("port", 11434, "Listen port")
 		configPath := fs.String("config", "", "Path to agent.json")
 		allowAll := fs.Bool("allow-all", false, "Allow all IPs in firewall")
-		fs.Usage = func() {
-			fmt.Fprintf(os.Stderr, "Usage: private-llm [serve] [flags]\n\nStart the local Ollama-compatible proxy.\n\nFlags:\n")
-			fs.PrintDefaults()
-		}
+		fs.Usage = usage
 		fs.Parse(args)
 		if err := loadConfig(*configPath); err != nil {
 			log.Fatalf("config error: %v", err)
@@ -232,14 +235,28 @@ func sendStatus(ctx context.Context) {
 	var u tui.StatusUpdate
 
 	// VM status
-	stopped, err := isVMStopped(ctx)
+	status, err := getVMStatus(ctx)
 	if err != nil {
 		u.VMStatus = "NOT FOUND"
 		log.Printf("[poll] VM status check: %v", err)
-	} else if stopped {
-		u.VMStatus = "STOPPED"
 	} else {
-		u.VMStatus = "RUNNING"
+		if status != "RUNNING" {
+			ClearProxyReady()
+		}
+		if status == "RUNNING" && !IsProxyReady() {
+			// VM is running but proxy hasn't connected yet — probe Ollama
+			// to distinguish BOOTING from already-ready (e.g. VM was already
+			// running when the TUI started).
+			ip := getExternalIP(nil)
+			if ip != "" && probeOllama(ctx, ip) {
+				proxyReady.Store(true)
+				u.VMStatus = "RUNNING"
+			} else {
+				u.VMStatus = "BOOTING"
+			}
+		} else {
+			u.VMStatus = status
+		}
 	}
 
 	// External IP
@@ -522,28 +539,64 @@ func handleActions(ctx context.Context) {
 		switch action {
 		case tui.ActionRestartVM:
 			tuiProg.Send(tui.ActionStartMsg{Label: "Restarting VM..."})
-			err := doRestartVM(ctx)
+			err := restartVMWithRotation(ctx)
+			sendStatus(ctx)
 			tuiProg.Send(tui.ActionDoneMsg{Err: err})
 
 		case tui.ActionResetVM:
 			tuiProg.Send(tui.ActionStartMsg{Label: "Resetting VM..."})
-			err := doResetVM(ctx)
+			err := resetVMFull(ctx)
+			sendStatus(ctx)
 			tuiProg.Send(tui.ActionDoneMsg{Err: err})
 
 		case tui.ActionStopVM:
 			tuiProg.Send(tui.ActionStartMsg{Label: "Stopping VM..."})
-			err := stopVM(ctx)
+			err := stopVMIfRunning(ctx)
+			sendStatus(ctx)
 			tuiProg.Send(tui.ActionDoneMsg{Err: err})
 
 		case tui.ActionStartVM:
 			tuiProg.Send(tui.ActionStartMsg{Label: "Starting VM..."})
-			err := doStartVM(ctx)
+			err := startVMIfStopped(ctx)
+			sendStatus(ctx)
 			tuiProg.Send(tui.ActionDoneMsg{Err: err})
 		}
 	}
 }
 
-func doRestartVM(ctx context.Context) error {
+// stopVMIfRunning stops the VM if it's running, no-op if already stopped.
+// Holds setupMu to prevent races with proxy requests.
+func stopVMIfRunning(ctx context.Context) error {
+	setupMu.Lock()
+	defer setupMu.Unlock()
+	if err := stopVM(ctx); err != nil {
+		return err
+	}
+	resetProxyState()
+	removeFirewall(ctx)
+	return nil
+}
+
+// startVMIfStopped opens the firewall, starts the VM if stopped, and waits
+// for Ollama. No-op if already running. Holds setupMu.
+func startVMIfStopped(ctx context.Context) error {
+	setupMu.Lock()
+	defer setupMu.Unlock()
+	if err := ensureFirewallOpen(ctx); err != nil {
+		return fmt.Errorf("firewall: %w", err)
+	}
+	if _, err := ensureVMRunning(ctx); err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+	resetProxyState()
+	return nil
+}
+
+// restartVMWithRotation stops the VM (if running), rotates all secrets, and
+// starts it with fresh certs. Holds setupMu.
+func restartVMWithRotation(ctx context.Context) error {
+	setupMu.Lock()
+	defer setupMu.Unlock()
 	if err := stopVM(ctx); err != nil {
 		return fmt.Errorf("stop: %w", err)
 	}
@@ -556,18 +609,21 @@ func doRestartVM(ctx context.Context) error {
 	if _, err := ensureVMRunning(ctx); err != nil {
 		return fmt.Errorf("start: %w", err)
 	}
-	removeFirewall(ctx)
+	resetProxyState()
 	return nil
 }
 
-func doResetVM(ctx context.Context) error {
+// resetVMFull deletes the VM, rotates secrets, and re-provisions from scratch.
+// Holds setupMu.
+func resetVMFull(ctx context.Context) error {
+	setupMu.Lock()
+	defer setupMu.Unlock()
 	if err := deleteVM(ctx); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
 	if err := rotateCerts(ctx); err != nil {
 		return fmt.Errorf("rotate certs: %w", err)
 	}
-	// Use the serve TUI's log writer for Pulumi output
 	var w io.Writer = os.Stdout
 	if tuiProg != nil {
 		w = tuiProg.LogWriter()
@@ -575,17 +631,7 @@ func doResetVM(ctx context.Context) error {
 	if err := infra.Up(ctx, newInfraConfig(), StateDir(), w); err != nil {
 		return fmt.Errorf("recreate: %w", err)
 	}
-	return nil
-}
-
-func doStartVM(ctx context.Context) error {
-	if err := ensureFirewallOpen(ctx); err != nil {
-		return fmt.Errorf("firewall: %w", err)
-	}
-	if _, err := ensureVMRunning(ctx); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-	removeFirewall(ctx)
+	resetProxyState()
 	return nil
 }
 

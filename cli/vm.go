@@ -41,11 +41,11 @@ func getExternalIP(instance *computepb.Instance) string {
 	return cachedExternalIP
 }
 
-// isVMStopped checks if the VM is in a stopped/terminated state (needs starting).
-func isVMStopped(ctx context.Context) (bool, error) {
+// getVMStatus returns the VM's current status string (e.g. RUNNING, STOPPED, STOPPING, STAGING).
+func getVMStatus(ctx context.Context) (string, error) {
 	client, err := compute.NewInstancesRESTClient(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to create compute client: %w", err)
+		return "", fmt.Errorf("failed to create compute client: %w", err)
 	}
 	defer client.Close()
 
@@ -55,10 +55,18 @@ func isVMStopped(ctx context.Context) (bool, error) {
 		Instance: cfg.VMName,
 	})
 	if err != nil {
-		return false, fmt.Errorf("failed to get instance: %w", err)
+		return "", fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	status := instance.GetStatus()
+	return instance.GetStatus(), nil
+}
+
+// isVMStopped checks if the VM is in a stopped/terminated state (needs starting).
+func isVMStopped(ctx context.Context) (bool, error) {
+	status, err := getVMStatus(ctx)
+	if err != nil {
+		return false, err
+	}
 	return status == "TERMINATED" || status == "STOPPED" || status == "SUSPENDED", nil
 }
 
@@ -244,6 +252,27 @@ func deleteVM(ctx context.Context) error {
 		log.Printf("[vm] waiting for deletion...")
 	}
 	return fmt.Errorf("timeout waiting for VM deletion")
+}
+
+// probeOllama does a single health check against Ollama. Returns true if ready.
+func probeOllama(ctx context.Context, ip string) bool {
+	tlsCfg, token, err := getTLSConfig(ctx)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://%s:8080/api/tags", ip), nil)
+	req.Host = "private-llm-server"
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
 // waitForOllama polls the Ollama health endpoint until it responds.
