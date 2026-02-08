@@ -47,7 +47,7 @@ func getVMStatus(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -79,7 +79,7 @@ func ensureVMRunning(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -172,7 +172,7 @@ func stopVM(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -225,7 +225,7 @@ func deleteVM(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	log.Printf("[vm] deleting VM...")
 	_, err = client.Delete(ctx, &computepb.DeleteInstanceRequest{

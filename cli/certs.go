@@ -55,22 +55,22 @@ func refreshTLSConfig() (*tls.Config, string, error) {
 	certDir := CertsDir()
 	log.Printf("[certs] loading from %s...", certDir)
 
-	caCertPEM, err := os.ReadFile(filepath.Join(certDir, "ca.crt"))
+	caCertPEM, err := os.ReadFile(filepath.Join(certDir, "ca.crt")) //nolint:gosec // path is from known config dir
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read CA cert: %w", err)
 	}
 
-	clientCertPEM, err := os.ReadFile(filepath.Join(certDir, "client.crt"))
+	clientCertPEM, err := os.ReadFile(filepath.Join(certDir, "client.crt")) //nolint:gosec // path is from known config dir
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read client cert: %w", err)
 	}
 
-	clientKeyPEM, err := os.ReadFile(filepath.Join(certDir, "client.key"))
+	clientKeyPEM, err := os.ReadFile(filepath.Join(certDir, "client.key")) //nolint:gosec // path is from known config dir
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read client key: %w", err)
 	}
 
-	tokenBytes, err := os.ReadFile(filepath.Join(certDir, "token"))
+	tokenBytes, err := os.ReadFile(filepath.Join(certDir, "token")) //nolint:gosec // path is from known config dir
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read token: %w", err)
 	}

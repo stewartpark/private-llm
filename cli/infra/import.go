@@ -41,7 +41,7 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 		if err != nil {
 			return
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 		_, err = client.Get(ctx, &computepb.GetNetworkRequest{
 			Project: cfg.ProjectID,
 			Network: cfg.Network,
@@ -60,7 +60,7 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 		if err != nil {
 			return
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 		_, err = client.Get(ctx, &computepb.GetSubnetworkRequest{
 			Project:    cfg.ProjectID,
 			Region:     cfg.Region,
@@ -80,7 +80,7 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 		if err != nil {
 			return
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 		krName := fmt.Sprintf("projects/%s/locations/%s/keyRings/private-llm-keyring", cfg.ProjectID, cfg.Region)
 		_, err = client.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: krName})
 		if err == nil {
@@ -112,7 +112,7 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 			if err != nil {
 				return
 			}
-			defer client.Close()
+			defer client.Close() //nolint:errcheck
 			fullName := fmt.Sprintf("projects/%s/secrets/%s", cfg.ProjectID, secretID)
 			_, err = client.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{Name: fullName})
 			if err == nil {
@@ -141,7 +141,7 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 		if err != nil {
 			return
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 		_, err = client.Get(ctx, &computepb.GetInstanceRequest{
 			Project:  cfg.ProjectID,
 			Zone:     cfg.Zone,

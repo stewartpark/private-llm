@@ -47,7 +47,7 @@ func detectPublicIP() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to detect public IP: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -84,7 +84,7 @@ func ensureFirewallOpen(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create firewall client: %w", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	// Try to get existing rule
 	existing, err := client.Get(ctx, &computepb.GetFirewallRequest{
@@ -175,7 +175,7 @@ func removeFirewall(ctx context.Context) {
 		log.Printf("[firewall] failed to create client for cleanup: %v", err)
 		return
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	_, err = client.Delete(ctx, &computepb.DeleteFirewallRequest{
 		Project:  cfg.ProjectID,
