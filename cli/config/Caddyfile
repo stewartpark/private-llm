@@ -15,6 +15,7 @@ private-llm-server:8080 {
 
 	handle @bearer {
 		reverse_proxy localhost:11434 {
+			flush_interval -1
 			header_up Host localhost:11434
 		}
 	}
