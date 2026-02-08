@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/stewartpark/private-llm/cli/tui"
 )
 
 var (
-	setupMu   sync.Mutex
-	vmIP      string
-	rotatedOnce bool
+	setupMu         sync.Mutex
+	vmIP            string
+	rotatedOnce     bool
+	lastRequestTime time.Time
+	lastRequestMu   sync.RWMutex
 )
 
 // ensureSetup verifies the VM is running on every call. If the VM was stopped,
@@ -67,6 +71,13 @@ func ensureSetup(ctx context.Context) (string, error) {
 	return ip, nil
 }
 
+// GetLastRequestTime returns the time of the last completed proxy request.
+func GetLastRequestTime() time.Time {
+	lastRequestMu.RLock()
+	defer lastRequestMu.RUnlock()
+	return lastRequestTime
+}
+
 // resetSetup forces re-running firewall + VM checks on next request.
 func resetSetup() {
 	setupMu.Lock()
@@ -75,7 +86,7 @@ func resetSetup() {
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[proxy] %s %s", r.Method, r.URL.Path)
+	reqStart := time.Now()
 	ctx := r.Context()
 
 	ip, err := ensureSetup(ctx)
@@ -176,7 +187,6 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	defer resp.Body.Close()
-	log.Printf("[proxy] response status: %d", resp.StatusCode)
 
 	// Copy response headers
 	for key, values := range resp.Header {
@@ -186,29 +196,90 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Stream with flushing
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		_, _ = io.Copy(w, resp.Body)
-		return
+	// Token parser — counts tokens from each streamed chunk in real time.
+	// Runs async so parsing never blocks the proxy write path.
+	tp := newTokenParser(r.URL.Path)
+	feedCh := make(chan []byte, 64)
+	feedDone := make(chan struct{})
+	go func() {
+		defer close(feedDone)
+		for chunk := range feedCh {
+			tp.Feed(chunk)
+		}
+	}()
+
+	// Send live tok/sec updates to TUI during streaming
+	rateDone := make(chan struct{})
+	if tuiProg != nil {
+		go func() {
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-rateDone:
+					return
+				case <-ticker.C:
+					if rate := tp.LiveOutputRate(); rate > 0 {
+						tuiProg.Send(tui.StreamingRate{OutputTokPerSec: rate})
+					}
+				}
+			}
+		}()
 	}
 
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				log.Printf("[proxy] write error: %v", writeErr)
-				return
+	// Stream with flushing — writes go to client immediately,
+	// copies are sent to the token parser goroutine asynchronously.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		body, _ := io.ReadAll(resp.Body)
+		_, _ = w.Write(body)
+		feedCh <- body
+	} else {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+					log.Printf("[proxy] write error: %v", writeErr)
+					break
+				}
+				flusher.Flush()
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				feedCh <- chunk
 			}
-			flusher.Flush()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Printf("[proxy] read error: %v", err)
+				break
+			}
 		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Printf("[proxy] read error: %v", err)
-			return
-		}
+	}
+	close(feedCh)
+	<-feedDone // wait for parser to drain before reading final counts
+	close(rateDone)
+
+	// Update last request time for idle tracking
+	lastRequestMu.Lock()
+	lastRequestTime = time.Now()
+	lastRequestMu.Unlock()
+
+	// Send request event to TUI (after streaming, so token counts are final)
+	inputTok, outputTok := tp.Counts()
+	finalRate := tp.LiveOutputRate()
+	if tuiProg != nil {
+		tuiProg.SendEvent(tui.RequestEvent{
+			Timestamp:       reqStart,
+			Method:          r.Method,
+			Path:            r.URL.Path,
+			Status:          resp.StatusCode,
+			Duration:        time.Since(reqStart),
+			Encrypted:       true,
+			InputTokens:     inputTok,
+			OutputTokens:    outputTok,
+			OutputTokPerSec: finalRate,
+		})
 	}
 }

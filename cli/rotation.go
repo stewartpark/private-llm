@@ -20,6 +20,7 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"google.golang.org/api/iterator"
 )
 
 var (
@@ -341,6 +342,22 @@ func validateCredentials(caCertPEM, serverCertPEM, serverKeyPEM, clientCertPEM, 
 	}
 
 	return nil
+}
+
+// secretHasVersions checks whether a Secret Manager secret already has at least one version.
+func secretHasVersions(ctx context.Context, client *secretmanager.Client, secretID string) (bool, error) {
+	it := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+		Parent:   fmt.Sprintf("projects/%s/secrets/%s", cfg.ProjectID, secretID),
+		PageSize: 1,
+	})
+	_, err := it.Next()
+	if err != nil {
+		if err == iterator.Done {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // writeSecretVersion adds a new version to an existing Secret Manager secret.

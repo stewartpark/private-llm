@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optimport"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
@@ -56,7 +58,7 @@ func getOrCreateStack(ctx context.Context, cfg *InfraConfig, stateDir string) (a
 
 // importAndRefresh detects existing GCP resources, imports them into state, and refreshes.
 // Used when the stack is empty but resources may already exist in GCP.
-func importAndRefresh(ctx context.Context, s auto.Stack, cfg *InfraConfig) {
+func importAndRefresh(ctx context.Context, s auto.Stack, cfg *InfraConfig, w io.Writer) {
 	existing := DetectExistingResources(ctx, cfg)
 	if len(existing) == 0 {
 		log.Printf("[infra] no existing resources found")
@@ -68,8 +70,8 @@ func importAndRefresh(ctx context.Context, s auto.Stack, cfg *InfraConfig) {
 		optimport.Resources(existing),
 		optimport.Protect(false),
 		optimport.GenerateCode(false),
-		optimport.ProgressStreams(os.Stdout),
-		optimport.ErrorProgressStreams(os.Stderr),
+		optimport.ProgressStreams(w),
+		optimport.ErrorProgressStreams(w),
 	)
 	if err != nil {
 		// Import failures are non-fatal — some resources may not match or already be tracked.
@@ -81,38 +83,38 @@ func importAndRefresh(ctx context.Context, s auto.Stack, cfg *InfraConfig) {
 
 	// Refresh after import to sync state with actual cloud state
 	log.Printf("[infra] refreshing state after import...")
-	_, err = s.Refresh(ctx, optrefresh.ProgressStreams(os.Stdout))
+	_, err = s.Refresh(ctx, optrefresh.ProgressStreams(w))
 	if err != nil {
 		log.Printf("[infra] refresh warning: %v", err)
 	}
 }
 
 // refreshOrImport checks if the stack has resources and refreshes, or imports if empty.
-func refreshOrImport(ctx context.Context, s auto.Stack, cfg *InfraConfig) {
+func refreshOrImport(ctx context.Context, s auto.Stack, cfg *InfraConfig, w io.Writer) {
 	info, err := s.Info(ctx)
 	if err == nil && info.ResourceCount != nil && *info.ResourceCount > 0 {
 		log.Printf("[infra] refreshing state from cloud (%d resources)...", *info.ResourceCount)
-		_, err = s.Refresh(ctx, optrefresh.ProgressStreams(os.Stdout))
+		_, err = s.Refresh(ctx, optrefresh.ProgressStreams(w))
 		if err != nil {
 			log.Printf("[infra] refresh warning: %v", err)
 		}
 	} else {
 		log.Printf("[infra] empty stack, checking for existing GCP resources...")
-		importAndRefresh(ctx, s, cfg)
+		importAndRefresh(ctx, s, cfg, w)
 	}
 }
 
 // Up provisions or reconciles infrastructure.
-func Up(ctx context.Context, cfg *InfraConfig, stateDir string) error {
+func Up(ctx context.Context, cfg *InfraConfig, stateDir string, w io.Writer) error {
 	s, err := getOrCreateStack(ctx, cfg, stateDir)
 	if err != nil {
 		return err
 	}
 
-	refreshOrImport(ctx, s, cfg)
+	refreshOrImport(ctx, s, cfg, w)
 
 	log.Printf("[infra] running up...")
-	result, err := s.Up(ctx, optup.ProgressStreams(os.Stdout))
+	result, err := s.Up(ctx, optup.ProgressStreams(w))
 	if err != nil {
 		return fmt.Errorf("pulumi up failed: %w", err)
 	}
@@ -129,16 +131,16 @@ func Up(ctx context.Context, cfg *InfraConfig, stateDir string) error {
 }
 
 // Down destroys all infrastructure.
-func Down(ctx context.Context, cfg *InfraConfig, stateDir string) error {
+func Down(ctx context.Context, cfg *InfraConfig, stateDir string, w io.Writer) error {
 	s, err := getOrCreateStack(ctx, cfg, stateDir)
 	if err != nil {
 		return err
 	}
 
-	refreshOrImport(ctx, s, cfg)
+	refreshOrImport(ctx, s, cfg, w)
 
 	log.Printf("[infra] destroying infrastructure...")
-	result, err := s.Destroy(ctx, optdestroy.ProgressStreams(os.Stdout))
+	result, err := s.Destroy(ctx, optdestroy.ProgressStreams(w))
 	if err != nil {
 		return fmt.Errorf("pulumi destroy failed: %w", err)
 	}
@@ -159,19 +161,19 @@ func Down(ctx context.Context, cfg *InfraConfig, stateDir string) error {
 	return nil
 }
 
-// Preview shows what would change without applying.
-func Preview(ctx context.Context, cfg *InfraConfig, stateDir string) error {
+// Preview shows what would change without applying. Returns the preview result.
+func Preview(ctx context.Context, cfg *InfraConfig, stateDir string, w io.Writer) (auto.PreviewResult, error) {
 	s, err := getOrCreateStack(ctx, cfg, stateDir)
 	if err != nil {
-		return err
+		return auto.PreviewResult{}, err
 	}
 
-	refreshOrImport(ctx, s, cfg)
+	refreshOrImport(ctx, s, cfg, w)
 
 	log.Printf("[infra] previewing changes...")
-	result, err := s.Preview(ctx)
+	result, err := s.Preview(ctx, optpreview.ProgressStreams(w))
 	if err != nil {
-		return fmt.Errorf("pulumi preview failed: %w", err)
+		return auto.PreviewResult{}, fmt.Errorf("pulumi preview failed: %w", err)
 	}
 
 	log.Printf("[infra] preview: %d to create, %d to update, %d to delete, %d unchanged",
@@ -180,5 +182,5 @@ func Preview(ctx context.Context, cfg *InfraConfig, stateDir string) error {
 		result.ChangeSummary["delete"],
 		result.ChangeSummary["same"])
 
-	return nil
+	return result, nil
 }
