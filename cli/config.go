@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/oauth2/google"
 )
 
 // Config holds agent configuration loaded from agent.json.
@@ -111,19 +113,13 @@ func applyDefaults() {
 	}
 }
 
-// inferProjectID attempts to get the GCP project ID from gcloud config.
+// inferProjectID gets the GCP project ID from Application Default Credentials.
 func inferProjectID() string {
-	cmd := exec.Command("gcloud", "config", "get-value", "project")
-	cmd.Stderr = nil
-	output, err := cmd.Output()
+	creds, err := google.FindDefaultCredentials(context.Background())
 	if err != nil {
 		return ""
 	}
-	p := strings.TrimSpace(string(output))
-	if p == "" || p == "(unset)" {
-		return ""
-	}
-	return p
+	return creds.ProjectID
 }
 
 // saveConfig writes the current config to the config file.

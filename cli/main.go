@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -26,14 +24,6 @@ import (
 
 // tuiProg is the global TUI program, set during runServe for proxy access.
 var tuiProg *tui.Program
-
-func isAddrInUse(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return errors.Is(opErr.Err, syscall.EADDRINUSE)
-	}
-	return false
-}
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage: private-llm [flags]
@@ -57,6 +47,11 @@ Run 'private-llm <command> --help' for command-specific flags.
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
 		usage()
+		os.Exit(0)
+	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Println("private-llm " + version)
 		os.Exit(0)
 	}
 
@@ -153,22 +148,30 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", proxyHandler)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	server := &http.Server{Addr: addr, Handler: mux}
 
-	// Start server
+	// Check if port is available before starting
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		tuiProg.Done(fmt.Errorf("port %d already in use — stop Ollama first", port))
+		<-tuiDone
+		if exitErr := tuiProg.ExitError(); exitErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr)
+		}
+		return
+	}
+
+	server := &http.Server{Handler: mux}
+
+	// Start server on the already-bound listener
 	go func() {
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			if isAddrInUse(err) {
-				tuiProg.Done(fmt.Errorf("port %d already in use — stop Ollama first", port))
-				return
-			}
+		if err := server.Serve(ln); err != http.ErrServerClosed {
 			tuiProg.Done(fmt.Errorf("server error: %v", err))
 		}
 	}()
 
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, os.Interrupt)
 
 	// Polling
 	pollCtx, pollCancel := context.WithCancel(ctx)
@@ -296,7 +299,7 @@ func sendStatus(ctx context.Context) {
 func runUp(ctx context.Context, args []string) {
 	fs := flag.NewFlagSet("private-llm up", flag.ExitOnError)
 	pConfigPath := fs.String("config", "", "Path to agent.json")
-	pProjectID := fs.String("project-id", "", "GCP project ID (default: inferred from gcloud)")
+	pProjectID := fs.String("project-id", "", "GCP project ID (default: from Application Default Credentials)")
 	pZone := fs.String("zone", "", "GCP zone (default: us-central1-a)")
 	pVMName := fs.String("vm-name", "", "VM instance name (default: private-llm-vm)")
 	pNetwork := fs.String("network", "", "VPC network name (default: private-llm)")
@@ -363,7 +366,7 @@ func runUp(ctx context.Context, args []string) {
 	applyDefaults()
 
 	if cfg.ProjectID == "" {
-		log.Fatalf("project_id is required.\nUse --project-id or run: gcloud config set project <PROJECT_ID>")
+		log.Fatalf("project_id is required.\nUse --project-id or set up Application Default Credentials")
 	}
 
 	if err := saveConfig(*pConfigPath); err != nil {
