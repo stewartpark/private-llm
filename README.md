@@ -75,18 +75,17 @@ No more sanitizing prompts. No more trusting third parties. **Your infrastructur
 
 ### Prerequisites
 
-- Go 1.25+
 - A GCP project with billing enabled
-- `gcloud` CLI authenticated (`gcloud auth application-default login`)
+- Application Default Credentials (`gcloud auth application-default login`)
 
 ### Install and deploy
 
 ```bash
-make install    # Builds binary → ~/.local/bin/private-llm
+curl -fsSL https://raw.githubusercontent.com/stewartpark/private-llm/main/misc/install.sh | sh
 private-llm up  # Prompts for project, provisions infrastructure, generates mTLS certs
 ```
 
-On first run with no config file, `up` infers your GCP project from `gcloud config`, prompts to confirm, and saves `~/.config/private-llm/agent.json`. Everything else has sensible defaults. You can also pass flags directly:
+On first run with no config file, `up` infers your GCP project from Application Default Credentials, prompts to confirm, and saves `~/.config/private-llm/agent.json`. Everything else has sensible defaults. You can also pass flags directly:
 
 ```bash
 private-llm up --project-id=my-project --zone=us-central1-a --machine-type=g2-standard-8
@@ -157,7 +156,7 @@ All config values can be passed as flags to `up`. They override the config file 
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--project-id` | Inferred from `gcloud config` | GCP project ID |
+| `--project-id` | From Application Default Credentials | GCP project ID |
 | `--zone` | `us-central1-a` | GCP zone (determines GPU availability) |
 | `--vm-name` | `private-llm-vm` | VM instance name |
 | `--network` | `private-llm` | VPC network name |
