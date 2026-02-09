@@ -7,7 +7,22 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-func provisionSecrets(ctx *pulumi.Context, cfg *InfraConfig, cryptoKey *kms.CryptoKey, vmSA *serviceaccount.Account) (*SecretsResult, error) {
+func secretReplication(cryptoKey *kms.CryptoKey) *secretmanager.SecretReplicationArgs {
+	if cryptoKey != nil {
+		return &secretmanager.SecretReplicationArgs{
+			Auto: &secretmanager.SecretReplicationAutoArgs{
+				CustomerManagedEncryption: &secretmanager.SecretReplicationAutoCustomerManagedEncryptionArgs{
+					KmsKeyName: cryptoKey.ID(),
+				},
+			},
+		}
+	}
+	return &secretmanager.SecretReplicationArgs{
+		Auto: &secretmanager.SecretReplicationAutoArgs{},
+	}
+}
+
+func provisionSecrets(ctx *pulumi.Context, cfg *InfraConfig, cryptoKey *kms.CryptoKey, vmSA *serviceaccount.Account, opts ...pulumi.ResourceOption) (*SecretsResult, error) {
 	secretIDs := []struct {
 		name     string
 		secretID string
@@ -18,25 +33,16 @@ func provisionSecrets(ctx *pulumi.Context, cfg *InfraConfig, cryptoKey *kms.Cryp
 		{"secret-token", "private-llm-internal-token"},
 	}
 
+	replication := secretReplication(cryptoKey)
+
 	secrets := make(map[string]*secretmanager.Secret)
 	for _, s := range secretIDs {
 		secret, err := secretmanager.NewSecret(ctx, s.name, &secretmanager.SecretArgs{
-			SecretId: pulumi.String(s.secretID),
-			Project:  pulumi.String(cfg.ProjectID),
-			Replication: &secretmanager.SecretReplicationArgs{
-				UserManaged: &secretmanager.SecretReplicationUserManagedArgs{
-					Replicas: secretmanager.SecretReplicationUserManagedReplicaArray{
-						&secretmanager.SecretReplicationUserManagedReplicaArgs{
-							Location: pulumi.String(cfg.Region),
-							CustomerManagedEncryption: &secretmanager.SecretReplicationUserManagedReplicaCustomerManagedEncryptionArgs{
-								KmsKeyName: cryptoKey.ID(),
-							},
-						},
-					},
-				},
-			},
+			SecretId:          pulumi.String(s.secretID),
+			Project:           pulumi.String(cfg.ProjectID),
+			Replication:       replication,
 			VersionDestroyTtl: pulumi.String("2592000s"), // 30 days
-		})
+		}, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +54,7 @@ func provisionSecrets(ctx *pulumi.Context, cfg *InfraConfig, cryptoKey *kms.Cryp
 			Project:  pulumi.String(cfg.ProjectID),
 			Role:     pulumi.String("roles/secretmanager.secretAccessor"),
 			Member:   pulumi.Sprintf("serviceAccount:%s", vmSA.Email),
-		})
+		}, opts...)
 		if err != nil {
 			return nil, err
 		}

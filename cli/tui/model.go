@@ -32,11 +32,13 @@ type RequestEvent struct {
 	Timestamp       time.Time
 	Method          string
 	Path            string
+	ModelName       string
 	Status          int
 	Duration        time.Duration
 	Encrypted       bool
 	InputTokens     int64
 	OutputTokens    int64
+	InputTokPerSec  float64
 	OutputTokPerSec float64
 }
 
@@ -153,8 +155,9 @@ type Model struct {
 	MaxRequestLog int
 
 	// Log lines captured from log.Printf
-	LogLines    []string
-	MaxLogLines int
+	LogLines       []string
+	MaxLogLines    int
+	LogScrollOffset int // 0 = bottom (newest), positive = scrolled up
 
 	// Timing
 	StartTime time.Time
@@ -171,9 +174,11 @@ type Model struct {
 	OutputTokensChangedAt time.Time
 
 	// Token rate tracking
-	CurrentTokPerSec float64
-	MaxTokPerSec     float64
-	IsStreaming       bool
+	CurrentInputTokPerSec  float64
+	MaxInputTokPerSec      float64
+	CurrentOutputTokPerSec float64
+	MaxOutputTokPerSec     float64
+	IsStreaming            bool
 
 	// Error
 	ErrorMessage string
@@ -223,6 +228,9 @@ func (m Model) Init() tea.Cmd {
 
 // IsAnimating returns true if the logo should be animated (request in last 3s).
 func (m Model) IsAnimating() bool {
+	if m.IsStreaming {
+		return true
+	}
 	if m.LastRequestTime.IsZero() {
 		return false
 	}
@@ -263,6 +271,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					default:
 					}
 				}
+			}
+		case "up", "k":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset++
+				maxOffset := len(m.LogLines)
+				if m.LogScrollOffset > maxOffset {
+					m.LogScrollOffset = maxOffset
+				}
+			}
+		case "down", "j":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset--
+				if m.LogScrollOffset < 0 {
+					m.LogScrollOffset = 0
+				}
+			}
+		case "pgup":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset += 10
+				maxOffset := len(m.LogLines)
+				if m.LogScrollOffset > maxOffset {
+					m.LogScrollOffset = maxOffset
+				}
+			}
+		case "pgdown":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset -= 10
+				if m.LogScrollOffset < 0 {
+					m.LogScrollOffset = 0
+				}
+			}
+		case "G":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset = 0
+			}
+		case "g":
+			if m.ViewType == ViewDashboard {
+				m.LogScrollOffset = len(m.LogLines)
 			}
 		}
 
@@ -326,11 +372,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case StreamingRate:
-		m.CurrentTokPerSec = msg.OutputTokPerSec
-		if msg.OutputTokPerSec > m.MaxTokPerSec {
-			m.MaxTokPerSec = msg.OutputTokPerSec
+		m.CurrentOutputTokPerSec = msg.OutputTokPerSec
+		if msg.OutputTokPerSec > m.MaxOutputTokPerSec {
+			m.MaxOutputTokPerSec = msg.OutputTokPerSec
 		}
 		m.IsStreaming = true
+		m.LogoFrame = (m.LogoFrame + 1) % 4
 
 	case StatusUpdate:
 		m.handleStatusUpdate(msg)
@@ -472,12 +519,18 @@ func (m *Model) handleRequestEvent(e RequestEvent) {
 	m.LastRequestTime = time.Now()
 	m.LogoFrame = 1 // Immediately start animation
 
-	// Record final rate from completed request
+	// Record final rates from completed request
 	m.IsStreaming = false
+	if e.InputTokPerSec > 0 {
+		m.CurrentInputTokPerSec = e.InputTokPerSec
+		if e.InputTokPerSec > m.MaxInputTokPerSec {
+			m.MaxInputTokPerSec = e.InputTokPerSec
+		}
+	}
 	if e.OutputTokPerSec > 0 {
-		m.CurrentTokPerSec = e.OutputTokPerSec
-		if e.OutputTokPerSec > m.MaxTokPerSec {
-			m.MaxTokPerSec = e.OutputTokPerSec
+		m.CurrentOutputTokPerSec = e.OutputTokPerSec
+		if e.OutputTokPerSec > m.MaxOutputTokPerSec {
+			m.MaxOutputTokPerSec = e.OutputTokPerSec
 		}
 	}
 }

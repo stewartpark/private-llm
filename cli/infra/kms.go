@@ -8,21 +8,21 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-func provisionKMS(ctx *pulumi.Context, cfg *InfraConfig, projectNumber pulumi.StringOutput) (*KMSResult, error) {
+func provisionKMS(ctx *pulumi.Context, cfg *InfraConfig, projectNumber pulumi.StringOutput, opts ...pulumi.ResourceOption) (*KMSResult, error) {
 	// Create Secret Manager service identity so the SM service agent exists
 	_, err := projects.NewServiceIdentity(ctx, "sm-identity", &projects.ServiceIdentityArgs{
 		Project: pulumi.String(cfg.ProjectID),
 		Service: pulumi.String("secretmanager.googleapis.com"),
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	keyRing, err := kms.NewKeyRing(ctx, "keyring", &kms.KeyRingArgs{
 		Name:     pulumi.String("private-llm-keyring"),
-		Location: pulumi.String(cfg.Region),
+		Location: pulumi.String("global"),
 		Project:  pulumi.String(cfg.ProjectID),
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func provisionKMS(ctx *pulumi.Context, cfg *InfraConfig, projectNumber pulumi.St
 			Algorithm:       pulumi.String("GOOGLE_SYMMETRIC_ENCRYPTION"),
 			ProtectionLevel: pulumi.String("HSM"),
 		},
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func provisionKMS(ctx *pulumi.Context, cfg *InfraConfig, projectNumber pulumi.St
 		Member: projectNumber.ApplyT(func(num string) string {
 			return fmt.Sprintf("serviceAccount:service-%s@gcp-sa-secretmanager.iam.gserviceaccount.com", num)
 		}).(pulumi.StringOutput),
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}

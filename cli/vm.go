@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
+	"google.golang.org/api/googleapi"
 )
 
 var (
@@ -39,6 +41,12 @@ func getExternalIP(instance *computepb.Instance) string {
 	cachedIPMu.RLock()
 	defer cachedIPMu.RUnlock()
 	return cachedExternalIP
+}
+
+// vmExists returns true if the VM instance exists in GCP.
+func vmExists(ctx context.Context) bool {
+	_, err := getVMStatus(ctx)
+	return err == nil
 }
 
 // getVMStatus returns the VM's current status string (e.g. RUNNING, STOPPED, STOPPING, STAGING).
@@ -220,12 +228,28 @@ func stopVM(ctx context.Context) error {
 }
 
 // deleteVM deletes the VM instance and waits for deletion to complete.
+// If the VM does not exist (404), it logs and returns nil.
 func deleteVM(ctx context.Context) error {
 	client, err := compute.NewInstancesRESTClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create compute client: %w", err)
 	}
 	defer client.Close() //nolint:errcheck
+
+	// Check if instance exists before attempting delete
+	_, err = client.Get(ctx, &computepb.GetInstanceRequest{
+		Project:  cfg.ProjectID,
+		Zone:     cfg.Zone,
+		Instance: cfg.VMName,
+	})
+	if err != nil {
+		var gerr *googleapi.Error
+		if errors.As(err, &gerr) && gerr.Code == 404 {
+			log.Printf("[vm] instance already deleted (not found)")
+			return nil
+		}
+		return fmt.Errorf("failed to check instance: %w", err)
+	}
 
 	log.Printf("[vm] deleting VM...")
 	_, err = client.Delete(ctx, &computepb.DeleteInstanceRequest{

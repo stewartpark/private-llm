@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/oauth2/google"
@@ -24,6 +25,8 @@ type Config struct {
 	ContextLength int    `json:"context_length"`
 	IdleTimeout   int    `json:"idle_timeout"`
 	SubnetCIDR    string `json:"subnet_cidr"`
+	Subnet        string `json:"subnet"`
+	DisableHSM    bool   `json:"disable_hsm"`
 }
 
 var cfg Config
@@ -111,15 +114,31 @@ func applyDefaults() {
 	if cfg.SubnetCIDR == "" {
 		cfg.SubnetCIDR = "10.10.0.0/24"
 	}
+	if cfg.Subnet == "" {
+		cfg.Subnet = "private-llm-subnet"
+	}
 }
 
 // inferProjectID gets the GCP project ID from Application Default Credentials.
+// For authorized_user credentials, ProjectID is empty so we fall back to
+// quota_project_id from the raw credential JSON.
 func inferProjectID() string {
 	creds, err := google.FindDefaultCredentials(context.Background())
 	if err != nil {
 		return ""
 	}
-	return creds.ProjectID
+	if creds.ProjectID != "" {
+		return creds.ProjectID
+	}
+	if creds.JSON != nil {
+		var f struct {
+			QuotaProjectID string `json:"quota_project_id"`
+		}
+		if json.Unmarshal(creds.JSON, &f) == nil && f.QuotaProjectID != "" {
+			return f.QuotaProjectID
+		}
+	}
+	return ""
 }
 
 // saveConfig writes the current config to the config file.
@@ -150,6 +169,23 @@ func promptString(label, defaultVal string) string {
 	}
 	return input
 }
+
+// promptInt prompts the user for an integer value with a default.
+func promptInt(label string, defaultVal int) int {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("  %s [%d]: ", label, defaultVal)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultVal
+	}
+	val, err := strconv.Atoi(input)
+	if err != nil {
+		return defaultVal
+	}
+	return val
+}
+
 
 // CertsDir returns the local certs directory path.
 func CertsDir() string {

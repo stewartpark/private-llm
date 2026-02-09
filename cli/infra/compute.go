@@ -2,13 +2,33 @@ package infra
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/serviceaccount"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult, vmSA *serviceaccount.Account) error {
+// machineFamily extracts the family prefix (e.g. "g2") from a machine type like "g2-standard-8".
+func machineFamily(machineType string) string {
+	parts := strings.SplitN(machineType, "-", 2)
+	if len(parts) > 0 {
+		return strings.ToLower(parts[0])
+	}
+	return ""
+}
+
+// supportsHyperdisk returns true if the machine type family supports hyperdisk-balanced.
+func supportsHyperdisk(machineType string) bool {
+	switch machineFamily(machineType) {
+	case "c3", "c3d", "c4", "c4a", "m3", "n4", "z3", "a3", "g4", "h3":
+		return true
+	default:
+		return false
+	}
+}
+
+func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult, vmSA *serviceaccount.Account, opts ...pulumi.ResourceOption) error {
 	_, err := compute.NewInstance(ctx, "vm", &compute.InstanceArgs{
 		Name:                    pulumi.String(cfg.VMName),
 		MachineType:             pulumi.String(cfg.MachineType),
@@ -22,15 +42,7 @@ func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult,
 			InstanceTerminationAction: pulumi.String("STOP"),
 			OnHostMaintenance:         pulumi.String("TERMINATE"),
 		},
-		BootDisk: &compute.InstanceBootDiskArgs{
-			InitializeParams: &compute.InstanceBootDiskInitializeParamsArgs{
-				Image:                 pulumi.String("projects/deeplearning-platform-release/global/images/family/common-cu128-ubuntu-2404-nvidia-570"),
-				Size:                  pulumi.Int(128),
-				Type:                  pulumi.String("hyperdisk-balanced"),
-				ProvisionedIops:       pulumi.Int(3000),
-				ProvisionedThroughput: pulumi.Int(700),
-			},
-		},
+		BootDisk: bootDiskArgs(cfg.MachineType),
 		ShieldedInstanceConfig: &compute.InstanceShieldedInstanceConfigArgs{
 			EnableSecureBoot:         pulumi.Bool(true),
 			EnableVtpm:               pulumi.Bool(true),
@@ -62,7 +74,23 @@ func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult,
 			"enable-guest-attributes": pulumi.String("TRUE"),
 			"startup-script":          pulumi.String(cfg.StartupScript),
 		},
-	})
+	}, opts...)
 
 	return err
+}
+
+func bootDiskArgs(machineType string) *compute.InstanceBootDiskArgs {
+	diskImage := "projects/deeplearning-platform-release/global/images/family/common-cu128-ubuntu-2404-nvidia-570"
+	params := &compute.InstanceBootDiskInitializeParamsArgs{
+		Image: pulumi.String(diskImage),
+		Size:  pulumi.Int(128),
+	}
+	if supportsHyperdisk(machineType) {
+		params.Type = pulumi.String("hyperdisk-balanced")
+		params.ProvisionedIops = pulumi.Int(3000)
+		params.ProvisionedThroughput = pulumi.Int(700)
+	} else {
+		params.Type = pulumi.String("pd-ssd")
+	}
+	return &compute.InstanceBootDiskArgs{InitializeParams: params}
 }

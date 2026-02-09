@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,7 +16,6 @@ import (
 )
 
 var (
-	setupMu         sync.Mutex
 	vmIP            string
 	rotatedOnce     bool
 	proxyReady      atomic.Bool
@@ -22,58 +23,48 @@ var (
 	lastRequestMu   sync.RWMutex
 )
 
-// ensureSetup verifies the VM is running on every call. If the VM was stopped,
-// it re-runs the full startup: rotate certs, start VM, wait for Ollama.
-func ensureSetup(ctx context.Context) (string, error) {
-	setupMu.Lock()
-	defer setupMu.Unlock()
+// Resettable channel gate: closed channel = gate open (requests pass),
+// unclosed channel = gate closed (requests block at waitReady).
+var (
+	readyMu sync.Mutex
+	readyCh = make(chan struct{}) // starts blocking (gate closed)
+)
 
-	// Always verify VM is still running, even if we have a cached IP
-	if vmIP != "" {
-		stopped, err := isVMStopped(ctx)
-		if err != nil {
-			// If we can't check, assume cached IP is still good;
-			// the actual request will fail and trigger retry logic if it's not
-			log.Printf("[setup] VM status check failed: %v, using cached IP", err)
-			return vmIP, nil
-		}
-		if !stopped {
-			return vmIP, nil
-		}
-		log.Printf("[setup] VM is stopped, restarting full setup...")
-		vmIP = ""
-		proxyReady.Store(false)
-		rotatedOnce = false
-		invalidateTLSConfig()
+func waitReady(ctx context.Context) error {
+	readyMu.Lock()
+	ch := readyCh
+	readyMu.Unlock()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
 
-	if err := ensureFirewallOpen(ctx); err != nil {
-		return "", fmt.Errorf("failed to configure firewall: %w", err)
+func openGate() {
+	readyMu.Lock()
+	defer readyMu.Unlock()
+	select {
+	case <-readyCh: // already open
+	default:
+		close(readyCh)
 	}
+}
 
-	needsStart, err := isVMStopped(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to check VM status: %w", err)
+func closeGate() {
+	readyMu.Lock()
+	defer readyMu.Unlock()
+	select {
+	case <-readyCh: // open → replace with fresh blocking channel
+		readyCh = make(chan struct{})
+	default: // already blocking
 	}
+}
 
-	// Only rotate certs when VM is stopped — it fetches certs from SM on boot
-	if needsStart && !rotatedOnce {
-		log.Printf("[setup] rotating certificates (VM will boot with fresh certs)...")
-		if err := rotateCerts(ctx); err != nil {
-			return "", fmt.Errorf("failed to rotate certs: %w", err)
-		}
-		rotatedOnce = true
-		sendStatus(ctx)
-	}
-
-	ip, err := ensureVMRunning(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to start VM: %w", err)
-	}
-
-	vmIP = ip
-	proxyReady.Store(true)
-	return ip, nil
+// getCachedVMIP returns the cached VM IP address.
+func getCachedVMIP() string {
+	return vmIP
 }
 
 // IsProxyReady returns true if the proxy has successfully connected to the VM.
@@ -93,11 +84,12 @@ func GetLastRequestTime() time.Time {
 	return lastRequestTime
 }
 
-// resetProxyState clears cached proxy state so ensureSetup re-discovers the VM
-// on the next request. Must be called while holding setupMu.
+// resetProxyState clears cached proxy state so doSetup re-discovers the VM.
+// Must be called while holding ops.mu.
 func resetProxyState() {
 	vmIP = ""
 	proxyReady.Store(false)
+	closeGate()
 	rotatedOnce = false
 	invalidateTLSConfig()
 }
@@ -106,12 +98,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 	ctx := r.Context()
 
-	ip, err := ensureSetup(ctx)
-	if err != nil {
-		log.Printf("[proxy] setup failed: %v", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	// Block until the proxy is ready (gate open). If the client disconnects
+	// while waiting, return 503 immediately instead of hanging.
+	if err := waitReady(ctx); err != nil {
+		http.Error(w, "proxy not ready: client disconnected", http.StatusServiceUnavailable)
 		return
 	}
+
+	ip := getCachedVMIP()
 
 	// Load mTLS config
 	tlsCfg, internalToken, err := getTLSConfig(ctx)
@@ -133,11 +127,29 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Retry loop for 502s (Caddy up, Ollama not ready)
+	// Buffer request body so we can peek at "model" and replay on retries.
+	var reqBody []byte
+	var modelName string
+	if r.Body != nil {
+		reqBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
+			return
+		}
+		var peek struct {
+			Model string `json:"model"`
+		}
+		if json.Unmarshal(reqBody, &peek) == nil && peek.Model != "" {
+			modelName = peek.Model
+		}
+	}
+
+	// Retry loop for 502s (Caddy up, Ollama not ready) and connection errors.
 	var resp *http.Response
+	var upstreamStart time.Time
 	maxRetries := 12
 	for attempt := range maxRetries {
-		proxyReq, err := http.NewRequestWithContext(ctx, r.Method, endpoint, r.Body)
+		proxyReq, err := http.NewRequestWithContext(ctx, r.Method, endpoint, bytes.NewReader(reqBody))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
 			return
@@ -155,27 +167,23 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		proxyReq.Header.Set("Authorization", "Bearer "+internalToken)
 		proxyReq.Host = "private-llm-server"
 
+		upstreamStart = time.Now()
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			log.Printf("[proxy] request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
-			// On first failure, reset setup so next attempt re-checks firewall/VM
+			// On first failure, signal ops loop to recover and wait for gate
 			if attempt == 0 {
-				setupMu.Lock()
-				resetProxyState()
-				setupMu.Unlock()
-
-				// Re-run setup
-				newIP, setupErr := ensureSetup(ctx)
-				if setupErr != nil {
-					http.Error(w, fmt.Sprintf("Failed to re-setup: %v", setupErr), http.StatusServiceUnavailable)
+				ops.RequestRecovery()
+				if waitErr := waitReady(ctx); waitErr != nil {
+					http.Error(w, "proxy not ready: client disconnected", http.StatusServiceUnavailable)
 					return
 				}
-				ip = newIP
+				// Re-read state after recovery
+				ip = getCachedVMIP()
 				endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
 				if r.URL.RawQuery != "" {
 					endpoint += "?" + r.URL.RawQuery
 				}
-
 				tlsCfg, internalToken, err = getTLSConfig(ctx)
 				if err != nil {
 					http.Error(w, fmt.Sprintf("Failed to refresh certs: %v", err), http.StatusInternalServerError)
@@ -217,6 +225,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Token parser — counts tokens from each streamed chunk in real time.
 	// Runs async so parsing never blocks the proxy write path.
 	tp := newTokenParser(r.URL.Path)
+	tp.upstreamStartNano.Store(upstreamStart.UnixNano())
 	feedCh := make(chan []byte, 64)
 	feedDone := make(chan struct{})
 	go func() {
@@ -287,16 +296,19 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Send request event to TUI (after streaming, so token counts are final)
 	inputTok, outputTok := tp.Counts()
 	finalRate := tp.LiveOutputRate()
+	inputRate := tp.InputRate()
 	if tuiProg != nil {
 		tuiProg.SendEvent(tui.RequestEvent{
 			Timestamp:       reqStart,
 			Method:          r.Method,
 			Path:            r.URL.Path,
+			ModelName:       modelName,
 			Status:          resp.StatusCode,
 			Duration:        time.Since(reqStart),
 			Encrypted:       true,
 			InputTokens:     inputTok,
 			OutputTokens:    outputTok,
+			InputTokPerSec:  inputRate,
 			OutputTokPerSec: finalRate,
 		})
 	}

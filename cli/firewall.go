@@ -167,6 +167,7 @@ func createFirewallRule(ctx context.Context, client *compute.FirewallsClient, so
 }
 
 // removeFirewall deletes the dynamic firewall rule (called on shutdown).
+// If the rule does not exist (404), it logs and returns.
 func removeFirewall(ctx context.Context) {
 	log.Printf("[firewall] removing rule %s...", firewallRuleName)
 
@@ -176,6 +177,24 @@ func removeFirewall(ctx context.Context) {
 		return
 	}
 	defer client.Close() //nolint:errcheck
+
+	// Check if rule exists before attempting delete
+	_, err = client.Get(ctx, &computepb.GetFirewallRequest{
+		Project:  cfg.ProjectID,
+		Firewall: firewallRuleName,
+	})
+	if err != nil {
+		var gerr *googleapi.Error
+		if errors.As(err, &gerr) && gerr.Code == 404 {
+			log.Printf("[firewall] rule already removed (not found)")
+			firewallIsActiveMu.Lock()
+			firewallIsActive = false
+			firewallIsActiveMu.Unlock()
+			return
+		}
+		log.Printf("[firewall] failed to check rule: %v", err)
+		return
+	}
 
 	_, err = client.Delete(ctx, &computepb.DeleteFirewallRequest{
 		Project:  cfg.ProjectID,

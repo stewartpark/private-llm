@@ -57,8 +57,9 @@ type tokenParser struct {
 	streamed atomic.Int64
 
 	// Timing for tok/sec calculation (atomic for cross-goroutine reads)
-	firstOutputNano atomic.Int64 // unix nano of first output token
-	lastOutputNano  atomic.Int64 // unix nano of most recent output token
+	upstreamStartNano atomic.Int64 // unix nano of when upstream request was sent
+	firstOutputNano   atomic.Int64 // unix nano of first output token
+	lastOutputNano    atomic.Int64 // unix nano of most recent output token
 
 	// SSE state: tracks the last "event:" line for Anthropic/Responses
 	lastEvent string
@@ -104,6 +105,23 @@ func (p *tokenParser) countOutput() {
 	p.output.Add(1)
 	p.streamed.Add(1)
 	totalOutputTokens.Add(1)
+}
+
+// InputRate returns the approximate input (prompt eval) tokens per second,
+// estimated as input_tokens / TTFT. Only meaningful after the stream has started
+// and input token count is known (usually at stream end).
+func (p *tokenParser) InputRate() float64 {
+	in := p.input
+	if in == 0 {
+		return 0
+	}
+	start := p.upstreamStartNano.Load()
+	first := p.firstOutputNano.Load()
+	if start == 0 || first == 0 || first <= start {
+		return 0
+	}
+	ttft := float64(first-start) / 1e9
+	return float64(in) / ttft
 }
 
 // LiveOutputRate returns the current output tokens per second, safe to call

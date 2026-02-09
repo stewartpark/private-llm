@@ -6,7 +6,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -36,6 +35,7 @@ Flags:
   -allow-all       Allow all IPs in firewall instead of just yours
 
 Commands:
+  configure        Create or update agent configuration interactively
   up               Provision or reconcile infrastructure + generate certs
   down             Destroy all infrastructure
   rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
@@ -74,10 +74,22 @@ func main() {
 		allowAll := fs.Bool("allow-all", false, "Allow all IPs in firewall")
 		fs.Usage = usage
 		_ = fs.Parse(args)
-		if err := loadConfig(*configPath); err != nil {
-			log.Fatalf("config error: %v", err)
+		_ = loadConfig(*configPath)
+		if !vmExists(ctx) {
+			runUp(ctx, nil)
 		}
 		runServe(ctx, cancel, *port, *allowAll)
+
+	case "configure":
+		fs := flag.NewFlagSet("private-llm configure", flag.ExitOnError)
+		configPath := fs.String("config", "", "Path to agent.json")
+		fs.Usage = func() {
+			fmt.Fprintf(os.Stderr, "Usage: private-llm configure [flags]\n\nCreate or update agent configuration interactively.\n\nFlags:\n")
+			fs.PrintDefaults()
+		}
+		_ = fs.Parse(args)
+		runConfigure(*configPath)
+		fmt.Printf("Configuration saved to %s\n", configPathOrDefault(*configPath))
 
 	case "up":
 		runUp(ctx, args)
@@ -100,6 +112,29 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		usage()
 		os.Exit(1)
+	}
+}
+
+// ── configure ────────────────────────────────────────────────────
+
+func runConfigure(configPath string) {
+	firstRun := !loadConfigFile(configPath)
+
+	if cfg.ProjectID == "" {
+		if p := inferProjectID(); p != "" {
+			cfg.ProjectID = p
+		}
+	}
+
+	runInteractiveSetup(firstRun)
+	applyDefaults()
+
+	if cfg.ProjectID == "" {
+		log.Fatalf("project_id is required.\nUse 'private-llm configure' and provide a GCP Project ID")
+	}
+
+	if err := saveConfig(configPath); err != nil {
+		log.Fatalf("failed to save config: %v", err)
 	}
 }
 
@@ -169,6 +204,10 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 		}
 	}()
 
+	// Start the ops event loop — handles initial setup, recovery signals,
+	// and TUI-triggered actions in a single serialized goroutine.
+	go ops.Run(ctx, tuiProg.Actions())
+
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
@@ -178,7 +217,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 
 	shutdown := sync.OnceFunc(func() {
 		pollCancel()
-		removeFirewall(ctx)
+		ops.RemoveFirewall(ctx)
 		_ = server.Close()
 		cancel()
 	})
@@ -191,9 +230,6 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 
 	// Start status polling
 	go pollLoop(pollCtx)
-
-	// Handle TUI-triggered actions (r/R/S shortcuts)
-	go handleActions(ctx)
 
 	// Skip boot animation — go straight to dashboard
 	tuiProg.SetView(tui.ViewDashboard)
@@ -309,6 +345,8 @@ func runUp(ctx context.Context, args []string) {
 	pContextLength := fs.Int("context-length", 0, "Context window size (default: 262144)")
 	pIdleTimeout := fs.Int("idle-timeout", 0, "Idle shutdown seconds (default: 300)")
 	pSubnetCIDR := fs.String("subnet-cidr", "", "Subnet CIDR (default: 10.10.0.0/24)")
+	pSubnet := fs.String("subnet", "", "Subnet name (default: private-llm-subnet)")
+	pDisableHSM := fs.Bool("disable-hsm", false, "Skip KMS/HSM key management")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: private-llm up [flags]\n\nProvision or reconcile cloud infrastructure and generate mTLS certificates.\nOn first run, prompts for required values interactively.\n\nFlags:\n")
 		fs.PrintDefaults()
@@ -349,6 +387,12 @@ func runUp(ctx context.Context, args []string) {
 	if *pSubnetCIDR != "" {
 		cfg.SubnetCIDR = *pSubnetCIDR
 	}
+	if *pSubnet != "" {
+		cfg.Subnet = *pSubnet
+	}
+	if *pDisableHSM {
+		cfg.DisableHSM = true
+	}
 
 	if cfg.ProjectID == "" {
 		if p := inferProjectID(); p != "" {
@@ -357,10 +401,7 @@ func runUp(ctx context.Context, args []string) {
 	}
 
 	if !existed {
-		fmt.Println("\nSetting up Private LLM...")
-		cfg.ProjectID = promptString("GCP Project ID", cfg.ProjectID)
-		cfg.Zone = promptString("Zone", orDefault(cfg.Zone, "us-central1-a"))
-		fmt.Println()
+		runInteractiveSetup(true)
 	}
 
 	applyDefaults()
@@ -535,108 +576,6 @@ func runRotateCA(ctx context.Context) {
 	log.Printf("[rotate-ca] restart the VM to pick up new server certs")
 }
 
-// ── TUI action handler ───────────────────────────────────────────
-
-func handleActions(ctx context.Context) {
-	for action := range tuiProg.Actions() {
-		switch action {
-		case tui.ActionRestartVM:
-			tuiProg.Send(tui.ActionStartMsg{Label: "Restarting VM..."})
-			err := restartVMWithRotation(ctx)
-			sendStatus(ctx)
-			tuiProg.Send(tui.ActionDoneMsg{Err: err})
-
-		case tui.ActionResetVM:
-			tuiProg.Send(tui.ActionStartMsg{Label: "Resetting VM..."})
-			err := resetVMFull(ctx)
-			sendStatus(ctx)
-			tuiProg.Send(tui.ActionDoneMsg{Err: err})
-
-		case tui.ActionStopVM:
-			tuiProg.Send(tui.ActionStartMsg{Label: "Stopping VM..."})
-			err := stopVMIfRunning(ctx)
-			sendStatus(ctx)
-			tuiProg.Send(tui.ActionDoneMsg{Err: err})
-
-		case tui.ActionStartVM:
-			tuiProg.Send(tui.ActionStartMsg{Label: "Starting VM..."})
-			err := startVMIfStopped(ctx)
-			sendStatus(ctx)
-			tuiProg.Send(tui.ActionDoneMsg{Err: err})
-		}
-	}
-}
-
-// stopVMIfRunning stops the VM if it's running, no-op if already stopped.
-// Holds setupMu to prevent races with proxy requests.
-func stopVMIfRunning(ctx context.Context) error {
-	setupMu.Lock()
-	defer setupMu.Unlock()
-	if err := stopVM(ctx); err != nil {
-		return err
-	}
-	resetProxyState()
-	removeFirewall(ctx)
-	return nil
-}
-
-// startVMIfStopped opens the firewall, starts the VM if stopped, and waits
-// for Ollama. No-op if already running. Holds setupMu.
-func startVMIfStopped(ctx context.Context) error {
-	setupMu.Lock()
-	defer setupMu.Unlock()
-	if err := ensureFirewallOpen(ctx); err != nil {
-		return fmt.Errorf("firewall: %w", err)
-	}
-	if _, err := ensureVMRunning(ctx); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-	resetProxyState()
-	return nil
-}
-
-// restartVMWithRotation stops the VM (if running), rotates all secrets, and
-// starts it with fresh certs. Holds setupMu.
-func restartVMWithRotation(ctx context.Context) error {
-	setupMu.Lock()
-	defer setupMu.Unlock()
-	if err := stopVM(ctx); err != nil {
-		return fmt.Errorf("stop: %w", err)
-	}
-	if err := rotateCerts(ctx); err != nil {
-		return fmt.Errorf("rotate certs: %w", err)
-	}
-	if err := ensureFirewallOpen(ctx); err != nil {
-		return fmt.Errorf("firewall: %w", err)
-	}
-	if _, err := ensureVMRunning(ctx); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-	resetProxyState()
-	return nil
-}
-
-// resetVMFull deletes the VM, rotates secrets, and re-provisions from scratch.
-// Holds setupMu.
-func resetVMFull(ctx context.Context) error {
-	setupMu.Lock()
-	defer setupMu.Unlock()
-	if err := deleteVM(ctx); err != nil {
-		return fmt.Errorf("delete: %w", err)
-	}
-	if err := rotateCerts(ctx); err != nil {
-		return fmt.Errorf("rotate certs: %w", err)
-	}
-	var w io.Writer = os.Stdout
-	if tuiProg != nil {
-		w = tuiProg.LogWriter()
-	}
-	if err := infra.Up(ctx, newInfraConfig(), StateDir(), w); err != nil {
-		return fmt.Errorf("recreate: %w", err)
-	}
-	resetProxyState()
-	return nil
-}
 
 // ── helpers ──────────────────────────────────────────────────────
 
@@ -652,6 +591,8 @@ func newInfraConfig() *infra.InfraConfig {
 		ContextLength: cfg.ContextLength,
 		IdleTimeout:   cfg.IdleTimeout,
 		SubnetCIDR:    cfg.SubnetCIDR,
+		Subnet:        cfg.Subnet,
+		DisableHSM:    cfg.DisableHSM,
 		StartupScript: vmStartupScript,
 		Caddyfile:     caddyfileContent,
 	}
@@ -659,6 +600,13 @@ func newInfraConfig() *infra.InfraConfig {
 
 func orDefault(val, def string) string {
 	if val == "" {
+		return def
+	}
+	return val
+}
+
+func orDefaultInt(val, def int) int {
+	if val == 0 {
 		return def
 	}
 	return val

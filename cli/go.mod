@@ -12,6 +12,7 @@ require (
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.16.0
 	github.com/pulumi/pulumi/sdk/v3 v3.159.0
 	golang.org/x/oauth2 v0.35.0
+	golang.org/x/term v0.37.0
 	google.golang.org/api v0.256.0
 )
 
@@ -105,7 +106,6 @@ require (
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
