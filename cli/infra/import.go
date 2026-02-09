@@ -64,35 +64,37 @@ func DetectExistingResources(ctx context.Context, cfg *InfraConfig) []*optimport
 		_, err = client.Get(ctx, &computepb.GetSubnetworkRequest{
 			Project:    cfg.ProjectID,
 			Region:     cfg.Region,
-			Subnetwork: "private-llm-subnet",
+			Subnetwork: cfg.Subnet,
 		})
 		if err == nil {
 			add("gcp:compute/subnetwork:Subnetwork", "subnet",
-				fmt.Sprintf("projects/%s/regions/%s/subnetworks/private-llm-subnet", cfg.ProjectID, cfg.Region))
+				fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", cfg.ProjectID, cfg.Region, cfg.Subnet))
 		}
 	}()
 
 	// KMS KeyRing + Key
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		client, err := kmsapi.NewKeyManagementClient(ctx)
-		if err != nil {
-			return
-		}
-		defer client.Close() //nolint:errcheck
-		krName := fmt.Sprintf("projects/%s/locations/%s/keyRings/private-llm-keyring", cfg.ProjectID, cfg.Region)
-		_, err = client.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: krName})
-		if err == nil {
-			add("gcp:kms/keyRing:KeyRing", "keyring", krName)
-
-			keyName := krName + "/cryptoKeys/private-llm-key"
-			_, err = client.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: keyName})
-			if err == nil {
-				add("gcp:kms/cryptoKey:CryptoKey", "key", keyName)
+	if !cfg.DisableHSM {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client, err := kmsapi.NewKeyManagementClient(ctx)
+			if err != nil {
+				return
 			}
-		}
-	}()
+			defer client.Close() //nolint:errcheck
+			krName := fmt.Sprintf("projects/%s/locations/global/keyRings/private-llm-keyring", cfg.ProjectID)
+			_, err = client.GetKeyRing(ctx, &kmspb.GetKeyRingRequest{Name: krName})
+			if err == nil {
+				add("gcp:kms/keyRing:KeyRing", "keyring", krName)
+
+				keyName := krName + "/cryptoKeys/private-llm-key"
+				_, err = client.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: keyName})
+				if err == nil {
+					add("gcp:kms/cryptoKey:CryptoKey", "key", keyName)
+				}
+			}
+		}()
+	}
 
 	// Secrets
 	secretSpecs := []struct {

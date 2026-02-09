@@ -100,7 +100,9 @@ func renderDashboard(m Model) string {
 	logo := assets.GetDashFrame(m.LogoFrame)
 	logoLines := strings.Split(logo, "\n")
 	logoStyle := lipgloss.NewStyle().Foreground(colorCyan)
-	if m.IsAnimating() {
+	if m.IsStreaming {
+		logoStyle = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+	} else if m.IsAnimating() {
 		logoStyle = logoStyle.Bold(true)
 	}
 
@@ -144,6 +146,12 @@ func renderDashboard(m Model) string {
 			inValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
 		}
 		inPart := inDot + lipgloss.NewStyle().Foreground(colorGray).Render(" In ") + inValStyle.Render(inTok)
+		if m.CurrentInputTokPerSec > 0 {
+			inPart += lipgloss.NewStyle().Foreground(colorDim).Render("  "+formatRate(m.CurrentInputTokPerSec)+" t/s")
+			if m.MaxInputTokPerSec > 0 {
+				inPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak "+formatRate(m.MaxInputTokPerSec)+" t/s)")
+			}
+		}
 
 		outDot := lipgloss.NewStyle().Foreground(colorGreen).Render("●")
 		outValStyle := lipgloss.NewStyle().Foreground(colorGreen)
@@ -156,25 +164,18 @@ func renderDashboard(m Model) string {
 			outValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true)
 		}
 		outPart := outDot + lipgloss.NewStyle().Foreground(colorGray).Render(" Out ") + outValStyle.Render(outTok)
-
-		ratePart := ""
-		if m.CurrentTokPerSec > 0 {
-			rateStr := formatRate(m.CurrentTokPerSec)
+		if m.CurrentOutputTokPerSec > 0 {
 			if m.IsStreaming {
-				ratePart = lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("⚡ " + rateStr + " tok/s")
+				outPart += lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("  ⚡ "+formatRate(m.CurrentOutputTokPerSec)+" t/s")
 			} else {
-				ratePart = lipgloss.NewStyle().Foreground(colorGray).Render(rateStr + " tok/s")
+				outPart += lipgloss.NewStyle().Foreground(colorDim).Render("  "+formatRate(m.CurrentOutputTokPerSec)+" t/s")
 			}
-			if m.MaxTokPerSec > 0 {
-				peakStr := formatRate(m.MaxTokPerSec)
-				ratePart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak " + peakStr + " tok/s)")
+			if m.MaxOutputTokPerSec > 0 {
+				outPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak "+formatRate(m.MaxOutputTokPerSec)+" t/s)")
 			}
 		}
 
 		tokenLine = inPart + "   " + outPart
-		if ratePart != "" {
-			tokenLine += "   " + ratePart
-		}
 	}
 
 	// Build right-side info to sit beside logo
@@ -299,19 +300,25 @@ func renderDashboard(m Model) string {
 				icon = "✗"
 				ic = colorRed
 			}
+			pathStr := req.Path
+			if req.ModelName != "" {
+				pathStr += " " + lipgloss.NewStyle().Foreground(colorGray).Render("("+req.ModelName+")")
+			}
 			left := lipgloss.NewStyle().Foreground(ic).Render(icon) + " " +
-				lipgloss.NewStyle().Foreground(colorWhite).Render(fmt.Sprintf("%-7s %s", req.Method, req.Path))
+				lipgloss.NewStyle().Foreground(colorWhite).Render(fmt.Sprintf("%-7s", req.Method)) + " " + pathStr
 			durStr := lipgloss.NewStyle().Foreground(colorGray).Render(
 				fmt.Sprintf("%d  %s", req.Status, req.Duration.Round(time.Millisecond)))
 			tokStr := ""
 			if req.InputTokens > 0 || req.OutputTokens > 0 {
-				tokStr = "  " +
-					lipgloss.NewStyle().Foreground(colorCyan).Render("●"+formatTokenCount(req.InputTokens)) +
-					" " +
-					lipgloss.NewStyle().Foreground(colorGreen).Render("●"+formatTokenCount(req.OutputTokens))
-				if req.OutputTokPerSec > 0 {
-					tokStr += " " + lipgloss.NewStyle().Foreground(colorDim).Render(formatRate(req.OutputTokPerSec)+"t/s")
+				inPart := lipgloss.NewStyle().Foreground(colorCyan).Render("●" + formatTokenCount(req.InputTokens))
+				if req.InputTokPerSec > 0 {
+					inPart += lipgloss.NewStyle().Foreground(colorDim).Render(" " + formatRate(req.InputTokPerSec) + "t/s")
 				}
+				outPart := lipgloss.NewStyle().Foreground(colorGreen).Render("●" + formatTokenCount(req.OutputTokens))
+				if req.OutputTokPerSec > 0 {
+					outPart += lipgloss.NewStyle().Foreground(colorDim).Render(" " + formatRate(req.OutputTokPerSec) + "t/s")
+				}
+				tokStr = "  " + inPart + " " + outPart
 			}
 			reqSection = append(reqSection, twoCol("  "+left, durStr+tokStr, iw))
 		}
@@ -350,15 +357,24 @@ func renderDashboard(m Model) string {
 
 	// ── Logs (fills remaining space) ──
 	var logSection []string
-	logHeader := lipgloss.NewStyle().Foreground(colorWhite).Bold(true).Render("Logs")
+	logLabel := "Logs"
+	if m.LogScrollOffset > 0 {
+		logLabel = fmt.Sprintf("Logs (scrolled +%d, G=bottom)", m.LogScrollOffset)
+	}
+	logHeader := lipgloss.NewStyle().Foreground(colorWhite).Bold(true).Render(logLabel)
 	logSection = append(logSection, logHeader)
 
 	logStyle := lipgloss.NewStyle().Foreground(colorDim)
-	startIdx := len(m.LogLines) - availLogLines
+	// endIdx is the last (exclusive) log line to show; offset 0 = bottom
+	endIdx := len(m.LogLines) - m.LogScrollOffset
+	if endIdx < 0 {
+		endIdx = 0
+	}
+	startIdx := endIdx - availLogLines
 	if startIdx < 0 {
 		startIdx = 0
 	}
-	visibleLogs := m.LogLines[startIdx:]
+	visibleLogs := m.LogLines[startIdx:endIdx]
 	for _, line := range visibleLogs {
 		logSection = append(logSection, logStyle.Render("  "+truncate(line, iw-2)))
 	}
@@ -391,18 +407,24 @@ func renderDashboard(m Model) string {
 	sep := descStyle.Render("  ")
 
 	vmRunning := m.Status.VMStatus == "RUNNING"
+	vmTransitional := m.Status.VMStatus == "STAGING" || m.Status.VMStatus == "BOOTING" || m.Status.VMStatus == "STOPPING"
 
 	toggleLabel := "stop VM"
 	if !vmRunning {
 		toggleLabel = "start VM"
 	}
 
-	shortcuts := keyStyle.Render("q") + descStyle.Render(" quit") + sep +
-		keyStyle.Render("S") + descStyle.Render(" "+toggleLabel)
+	shortcuts := keyStyle.Render("q") + descStyle.Render(" quit")
+	if !vmTransitional {
+		shortcuts += sep + keyStyle.Render("S") + descStyle.Render(" "+toggleLabel)
+	}
 	if vmRunning {
 		shortcuts += sep + keyStyle.Render("r") + descStyle.Render(" restart VM")
 	}
-	shortcuts += sep + keyStyle.Render("R") + descStyle.Render(" reset VM")
+	if !vmTransitional {
+		shortcuts += sep + keyStyle.Render("R") + descStyle.Render(" reset VM")
+	}
+	shortcuts += sep + keyStyle.Render("↑↓") + descStyle.Render(" scroll logs")
 
 	var footer string
 	if m.ActionInProgress {
@@ -531,10 +553,18 @@ func truncate(s string, maxWidth int) string {
 }
 
 func formatRate(r float64) string {
-	if r < 10 {
+	switch {
+	case r < 10:
 		return fmt.Sprintf("%.1f", r)
+	case r < 1000:
+		return fmt.Sprintf("%.0f", r)
+	case r < 10_000:
+		return fmt.Sprintf("%.1fk", r/1000)
+	case r < 1_000_000:
+		return fmt.Sprintf("%.0fk", r/1000)
+	default:
+		return fmt.Sprintf("%.1fM", r/1_000_000)
 	}
-	return fmt.Sprintf("%.0f", r)
 }
 
 func formatTokenCount(n int64) string {

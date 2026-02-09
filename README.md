@@ -166,6 +166,8 @@ All config values can be passed as flags to `up`. They override the config file 
 | `--context-length` | `262144` | Ollama context window size |
 | `--idle-timeout` | `300` | Seconds of idle before VM auto-stops |
 | `--subnet-cidr` | `10.10.0.0/24` | VPC subnet CIDR |
+| `--subnet` | `private-llm-subnet` | Subnet name |
+| `--disable-hsm` | `false` | Skip KMS/HSM key management |
 
 ## Architecture
 
