@@ -24,15 +24,10 @@ var ops = InfraOps{
 	recoveryCh: make(chan struct{}, 1),
 }
 
-// Run is the ops event loop. It performs initial setup, then waits for
-// recovery signals (from proxy) or TUI actions. Must be called from a
+// Run is the ops event loop. It waits for boot/recovery signals (from
+// the proxy on first request) or TUI actions. Must be called from a
 // single goroutine.
 func (o *InfraOps) Run(ctx context.Context, actions <-chan tui.Action) {
-	// Initial setup
-	o.mu.Lock()
-	o.doSetup(ctx)
-	o.mu.Unlock()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -46,6 +41,24 @@ func (o *InfraOps) Run(ctx context.Context, actions <-chan tui.Action) {
 			o.handleAction(ctx, action)
 			o.mu.Unlock()
 		}
+	}
+}
+
+// EnsureSetup signals the ops loop to run doSetup if the gate is closed
+// (VM not yet booted). No-op if the gate is already open. Called by the
+// proxy on each incoming request so the VM boots lazily on first use.
+func (o *InfraOps) EnsureSetup() {
+	readyMu.Lock()
+	ch := readyCh
+	readyMu.Unlock()
+	select {
+	case <-ch: // gate already open — VM is ready
+		return
+	default:
+	}
+	select {
+	case o.recoveryCh <- struct{}{}:
+	default: // already signaled
 	}
 }
 

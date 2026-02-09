@@ -29,7 +29,6 @@ func getExternalIP(instance *computepb.Instance) string {
 			if len(configs) > 0 {
 				ip := configs[0].GetNatIP()
 				if ip != "" {
-					log.Printf("[vm] external IP: %s", ip)
 					cachedIPMu.Lock()
 					cachedExternalIP = ip
 					cachedIPMu.Unlock()
@@ -65,6 +64,9 @@ func getVMStatus(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get instance: %w", err)
 	}
+
+	// Cache the external IP while we have the instance (used by sendStatus polling).
+	getExternalIP(instance)
 
 	return instance.GetStatus(), nil
 }
