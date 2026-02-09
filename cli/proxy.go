@@ -98,6 +98,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 	ctx := r.Context()
 
+	// Lazily trigger VM boot on first request (no-op if already running).
+	ops.EnsureSetup()
+
 	// Block until the proxy is ready (gate open). If the client disconnects
 	// while waiting, return 503 immediately instead of hanging.
 	if err := waitReady(ctx); err != nil {

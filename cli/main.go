@@ -286,9 +286,19 @@ func sendStatus(ctx context.Context) {
 			// VM is running but proxy hasn't connected yet — probe Ollama
 			// to distinguish BOOTING from already-ready (e.g. VM was already
 			// running when the TUI started).
+			// Ensure the firewall is open first so the probe can reach the VM
+			// (the previous CLI session removes the firewall on shutdown).
+			if !IsFirewallActive() {
+				if fwErr := ensureFirewallOpen(ctx); fwErr != nil {
+					log.Printf("[poll] failed to open firewall for probe: %v", fwErr)
+				}
+			}
 			ip := getExternalIP(nil)
 			if ip != "" && probeOllama(ctx, ip) {
+				// Ollama is already serving — make proxy functional immediately
+				vmIP = ip
 				proxyReady.Store(true)
+				openGate()
 				u.VMStatus = "RUNNING"
 			} else {
 				u.VMStatus = "BOOTING"

@@ -364,7 +364,7 @@ func renderDashboard(m Model) string {
 	logHeader := lipgloss.NewStyle().Foreground(colorWhite).Bold(true).Render(logLabel)
 	logSection = append(logSection, logHeader)
 
-	logStyle := lipgloss.NewStyle().Foreground(colorDim)
+	logStyle := lipgloss.NewStyle().Foreground(colorGray)
 	// endIdx is the last (exclusive) log line to show; offset 0 = bottom
 	endIdx := len(m.LogLines) - m.LogScrollOffset
 	if endIdx < 0 {
