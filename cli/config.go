@@ -187,6 +187,17 @@ func promptInt(label string, defaultVal int) int {
 }
 
 
+// StatusFile returns the path to the VM status file for external consumers.
+func StatusFile() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "private-llm", "status")
+}
+
+// writeStatusFile writes the current VM status to a file for external consumers.
+func writeStatusFile(status string) {
+	_ = os.WriteFile(StatusFile(), []byte(status+"\n"), 0600)
+}
+
 // CertsDir returns the local certs directory path.
 func CertsDir() string {
 	home, _ := os.UserHomeDir()
