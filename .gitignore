@@ -15,3 +15,5 @@ cli/cli
 # OS
 .DS_Store
 Thumbs.db
+
+app/.build/

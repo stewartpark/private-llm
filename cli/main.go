@@ -338,6 +338,9 @@ func sendStatus(ctx context.Context) {
 	u.InputTokens, u.OutputTokens = GetTokenCounts()
 
 	tuiProg.SendStatus(u)
+
+	// Write status file for external consumers (e.g. menu bar app icon)
+	writeStatusFile(u.VMStatus)
 }
 
 // ── up ───────────────────────────────────────────────────────────
