@@ -75,7 +75,9 @@ func main() {
 		fs.Usage = usage
 		_ = fs.Parse(args)
 		_ = loadConfig(*configPath)
+		writeStatusFile("STARTING")
 		if !vmExists(ctx) {
+			writeStatusFile("PROVISIONING")
 			runUp(ctx, nil)
 		}
 		runServe(ctx, cancel, *port, *allowAll)
@@ -218,6 +220,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 	shutdown := sync.OnceFunc(func() {
 		pollCancel()
 		ops.RemoveFirewall(ctx)
+		gcp.Close()
 		_ = server.Close()
 		cancel()
 	})
@@ -276,8 +279,13 @@ func sendStatus(ctx context.Context) {
 	// VM status
 	status, err := getVMStatus(ctx)
 	if err != nil {
-		u.VMStatus = "NOT FOUND"
-		log.Printf("[poll] VM status check: %v", err)
+		if isAuthError(err) {
+			u.VMStatus = "AUTH ERROR"
+			log.Printf("[poll] GCP credentials expired — run 'gcloud auth application-default login'")
+		} else {
+			u.VMStatus = "NOT FOUND"
+			log.Printf("[poll] VM status check: %v", err)
+		}
 	} else {
 		if status != "RUNNING" {
 			ClearProxyReady()

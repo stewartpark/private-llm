@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"google.golang.org/api/googleapi"
 )
@@ -50,11 +49,10 @@ func vmExists(ctx context.Context) bool {
 
 // getVMStatus returns the VM's current status string (e.g. RUNNING, STOPPED, STOPPING, STAGING).
 func getVMStatus(ctx context.Context) (string, error) {
-	client, err := compute.NewInstancesRESTClient(ctx)
+	client, err := gcp.Instances(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -85,11 +83,10 @@ func isVMStopped(ctx context.Context) (bool, error) {
 func ensureVMRunning(ctx context.Context) (string, error) {
 	log.Printf("[vm] ensuring VM running (project=%s, zone=%s, vm=%s)", cfg.ProjectID, cfg.Zone, cfg.VMName)
 
-	client, err := compute.NewInstancesRESTClient(ctx)
+	client, err := gcp.Instances(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -178,11 +175,10 @@ func ensureVMRunning(ctx context.Context) (string, error) {
 
 // stopVM stops the VM and waits for it to reach TERMINATED state.
 func stopVM(ctx context.Context) error {
-	client, err := compute.NewInstancesRESTClient(ctx)
+	client, err := gcp.Instances(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck
 
 	instance, err := client.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  cfg.ProjectID,
@@ -232,11 +228,10 @@ func stopVM(ctx context.Context) error {
 // deleteVM deletes the VM instance and waits for deletion to complete.
 // If the VM does not exist (404), it logs and returns nil.
 func deleteVM(ctx context.Context) error {
-	client, err := compute.NewInstancesRESTClient(ctx)
+	client, err := gcp.Instances(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create compute client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck
 
 	// Check if instance exists before attempting delete
 	_, err = client.Get(ctx, &computepb.GetInstanceRequest{

@@ -10,6 +10,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSHomeDirectory() + "/.config/private-llm/status"
     }()
 
+    private static let attentionStatuses: Set<String> = ["PROVISIONING", "AUTH ERROR"]
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateIcon(running: false)
@@ -19,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Private LLM", action: #selector(quitApp), keyEquivalent: "q"))
         statusItem.menu = menu
+
+        // Start CLI immediately (hidden) so the proxy is available right away
+        terminalController = TerminalWindowController()
 
         // Poll the status file every 5 seconds
         statusTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -40,6 +45,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if status != lastVMStatus {
             lastVMStatus = status
             updateIcon(running: status == "RUNNING")
+
+            if Self.attentionStatuses.contains(status) {
+                showWindowIfHidden()
+            }
+        }
+    }
+
+    private func showWindowIfHidden() {
+        guard let controller = terminalController else { return }
+        if controller.window?.isVisible != true {
+            controller.showWindow(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
@@ -61,10 +78,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleWindow() {
-        if terminalController == nil {
-            terminalController = TerminalWindowController()
-        }
-
         guard let controller = terminalController else { return }
 
         if controller.window?.isVisible == true {

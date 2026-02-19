@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"google.golang.org/api/googleapi"
 )
@@ -80,11 +79,10 @@ func ensureFirewallOpen(ctx context.Context) error {
 		log.Printf("[firewall] public IP: %s", publicIP)
 	}
 
-	client, err := compute.NewFirewallsRESTClient(ctx)
+	client, err := gcp.Firewalls(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create firewall client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck
 
 	// Try to get existing rule
 	existing, err := client.Get(ctx, &computepb.GetFirewallRequest{
@@ -95,7 +93,7 @@ func ensureFirewallOpen(ctx context.Context) error {
 		// Check if 404 (not found) - need to create
 		var gerr *googleapi.Error
 		if errors.As(err, &gerr) && gerr.Code == 404 {
-			return createFirewallRule(ctx, client, sourceRange)
+			return createFirewallRule(ctx, sourceRange)
 		}
 		return fmt.Errorf("failed to get firewall rule: %w", err)
 	}
@@ -131,8 +129,13 @@ func ensureFirewallOpen(ctx context.Context) error {
 }
 
 // createFirewallRule creates the dynamic firewall rule.
-func createFirewallRule(ctx context.Context, client *compute.FirewallsClient, sourceRange string) error {
+func createFirewallRule(ctx context.Context, sourceRange string) error {
 	log.Printf("[firewall] creating rule %s for %s", firewallRuleName, sourceRange)
+
+	client, err := gcp.Firewalls(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create firewall client: %w", err)
+	}
 
 	priority := int32(900)
 	direction := "INGRESS"
@@ -171,12 +174,11 @@ func createFirewallRule(ctx context.Context, client *compute.FirewallsClient, so
 func removeFirewall(ctx context.Context) {
 	log.Printf("[firewall] removing rule %s...", firewallRuleName)
 
-	client, err := compute.NewFirewallsRESTClient(ctx)
+	client, err := gcp.Firewalls(ctx)
 	if err != nil {
 		log.Printf("[firewall] failed to create client for cleanup: %v", err)
 		return
 	}
-	defer client.Close() //nolint:errcheck
 
 	// Check if rule exists before attempting delete
 	_, err = client.Get(ctx, &computepb.GetFirewallRequest{
