@@ -451,7 +451,7 @@ func (m *Model) handleStatusUpdate(u StatusUpdate) {
 		switch u.VMStatus {
 		case "RUNNING":
 			m.Status.VMStatusColor = "green"
-		case "STOPPED", "TERMINATED":
+		case "STOPPED", "TERMINATED", "AUTH ERROR":
 			m.Status.VMStatusColor = "red"
 		case "STOPPING", "STAGING", "BOOTING":
 			m.Status.VMStatusColor = "yellow"
