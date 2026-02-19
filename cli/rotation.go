@@ -31,7 +31,10 @@ var (
 // CA is only regenerated if within 30 days of expiry.
 // Server cert fingerprint is pinned in memory for impersonation detection.
 func rotateCerts(ctx context.Context) error {
-	certDir := CertsDir()
+	certDir, err := CertsDir()
+	if err != nil {
+		return fmt.Errorf("failed to get cert directory: %w", err)
+	}
 	if err := os.MkdirAll(certDir, 0700); err != nil {
 		return fmt.Errorf("failed to create certs dir: %w", err)
 	}
@@ -119,7 +122,7 @@ func ensureCA(certDir string) (caCertPEM, caKeyPEM []byte, err error) {
 	caKeyPath := filepath.Join(certDir, "ca.key")
 
 	caCertPEM, certErr := os.ReadFile(caCertPath) //nolint:gosec // path from known config dir
-	caKeyPEM, keyErr := os.ReadFile(caKeyPath)   //nolint:gosec // path from known config dir
+	caKeyPEM, keyErr := os.ReadFile(caKeyPath)    //nolint:gosec // path from known config dir
 
 	if certErr == nil && keyErr == nil {
 		// Check expiry

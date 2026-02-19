@@ -52,7 +52,10 @@ func refreshTLSConfig() (*tls.Config, string, error) {
 	certCacheMu.Lock()
 	defer certCacheMu.Unlock()
 
-	certDir := CertsDir()
+	certDir, err := CertsDir()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get cert directory: %w", err)
+	}
 	log.Printf("[certs] loading from %s...", certDir)
 
 	caCertPEM, err := os.ReadFile(filepath.Join(certDir, "ca.crt")) //nolint:gosec // path is from known config dir

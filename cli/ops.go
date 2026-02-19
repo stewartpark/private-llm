@@ -224,7 +224,8 @@ func (o *InfraOps) doResetVM(ctx context.Context) error {
 	if tuiProg != nil {
 		w = tuiProg.LogWriter()
 	}
-	if err := infra.Up(ctx, newInfraConfig(), StateDir(), w); err != nil {
+	stateDir, _ := StateDir()
+	if err := infra.Up(ctx, newInfraConfig(), stateDir, w); err != nil {
 		return fmt.Errorf("recreate: %w", err)
 	}
 	resetProxyState()
