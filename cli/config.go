@@ -186,26 +186,38 @@ func promptInt(label string, defaultVal int) int {
 	return val
 }
 
-
 // StatusFile returns the path to the VM status file for external consumers.
-func StatusFile() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "private-llm", "status")
+func StatusFile() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "private-llm", "status"), nil
 }
 
 // writeStatusFile writes the current VM status to a file for external consumers.
-func writeStatusFile(status string) {
-	_ = os.WriteFile(StatusFile(), []byte(status+"\n"), 0600)
+func writeStatusFile(status string) error {
+	statusPath, err := StatusFile()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(statusPath, []byte(status+"\n"), 0600)
 }
 
 // CertsDir returns the local certs directory path.
-func CertsDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "private-llm", "certs")
+func CertsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "private-llm", "certs"), nil
 }
 
 // StateDir returns the local Pulumi state directory path.
-func StateDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "private-llm", "state")
+func StateDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "private-llm", "state"), nil
 }

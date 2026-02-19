@@ -324,7 +324,7 @@ func sendStatus(ctx context.Context) {
 	u.SourceIP = GetCachedPublicIP()
 
 	// Cert/token age (from local disk — use NotBefore as creation time)
-	certDir := CertsDir()
+	certDir, _ := CertsDir()
 	if data, err := os.ReadFile(filepath.Join(certDir, "client.crt")); err == nil { //nolint:gosec // path from known config dir
 		if block, _ := pem.Decode(data); block != nil {
 			if cert, parseErr := x509.ParseCertificate(block.Bytes); parseErr == nil {
@@ -459,7 +459,8 @@ func runUp(ctx context.Context, args []string) {
 		// Preview
 		opProg.SetPhase(tui.OpPhasePreview)
 		opProg.SetStep("Previewing infrastructure changes...")
-		result, err := infra.Preview(ctx, newInfraConfig(), StateDir(), logWriter)
+		stateDir, _ := StateDir()
+		result, err := infra.Preview(ctx, newInfraConfig(), stateDir, logWriter)
 		if err != nil {
 			opProg.Done(fmt.Errorf("preview failed: %w", err))
 			return
@@ -484,7 +485,8 @@ func runUp(ctx context.Context, args []string) {
 		// Apply
 		opProg.SetPhase(tui.OpPhaseApply)
 		opProg.SetStep("Provisioning infrastructure...")
-		if err := infra.Up(ctx, newInfraConfig(), StateDir(), logWriter); err != nil {
+		stateDir2, _ := StateDir()
+		if err := infra.Up(ctx, newInfraConfig(), stateDir2, logWriter); err != nil {
 			opProg.Done(fmt.Errorf("up failed: %w", err))
 			return
 		}
@@ -512,7 +514,8 @@ func runUp(ctx context.Context, args []string) {
 				opProg.Done(fmt.Errorf("cert generation: %w", err))
 				return
 			}
-			log.Printf("[up] certs saved to: %s", CertsDir())
+			certDir, _ := CertsDir()
+			log.Printf("[up] certs saved to: %s", certDir)
 		}
 
 		log.Printf("[up] infrastructure provisioned successfully")
@@ -557,7 +560,8 @@ func runDown(ctx context.Context) {
 		// Destroy
 		opProg.SetPhase(tui.OpPhaseDestroy)
 		opProg.SetStep("Destroying infrastructure...")
-		if err := infra.Down(ctx, newInfraConfig(), StateDir(), logWriter); err != nil {
+		stateDir, _ := StateDir()
+		if err := infra.Down(ctx, newInfraConfig(), stateDir, logWriter); err != nil {
 			opProg.Done(fmt.Errorf("down failed: %w", err))
 			return
 		}
@@ -578,7 +582,10 @@ func runDown(ctx context.Context) {
 // ── rotate-mtls-ca ───────────────────────────────────────────────
 
 func runRotateCA(ctx context.Context) {
-	certDir := CertsDir()
+	certDir, err := CertsDir()
+	if err != nil {
+		log.Fatalf("failed to get cert directory: %v", err)
+	}
 
 	for _, name := range []string{"ca.crt", "ca.key"} {
 		p := filepath.Join(certDir, name)
@@ -596,7 +603,6 @@ func runRotateCA(ctx context.Context) {
 	log.Printf("[rotate-ca] certs at: %s", certDir)
 	log.Printf("[rotate-ca] restart the VM to pick up new server certs")
 }
-
 
 // ── helpers ──────────────────────────────────────────────────────
 
