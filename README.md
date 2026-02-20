@@ -8,6 +8,8 @@
   <a href="https://github.com/stewartpark/private-llm/releases/latest/download/Private-LLM.dmg">
     <img src="misc/macos-badge.png" alt="Download for macOS" height="48">
   </a>
+  <br>
+  <sub>After installing, run: <code>xattr -cr "/Applications/Private LLM.app"</code></sub>
 </p>
 
 <p align="center">
