@@ -5,7 +5,7 @@
 <h1 align="center">Private LLM</h1>
 
 <p align="center">
-  <a href="https://github.com/stewartpark/private-llm/releases/latest/download/Private-LLM.dmg">
+  <a href="https://github.com/stewartpark/private-llm/releases/latest/download/Private-LLM.app.zip">
     <img src="misc/macos-badge.png" alt="Download for macOS" height="48">
   </a>
 </p>
