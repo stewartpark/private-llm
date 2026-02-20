@@ -53,10 +53,12 @@ nfpms:
         dst: /usr/lib/systemd/system/private-llm.service
       - dst: /var/lib/private-llm
         type: dir
-        mode: "0755"
+        file_info:
+          mode: 0755
       - dst: /etc/private-llm
         type: dir
-        mode: "0755"
+        file_info:
+          mode: 0755
     scripts:
       postinstall: ./packaging/linux/deb/postinst
       postremove: ./packaging/linux/deb/postrm
