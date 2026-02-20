@@ -75,9 +75,13 @@ func main() {
 		fs.Usage = usage
 		_ = fs.Parse(args)
 		_ = loadConfig(*configPath)
-		writeStatusFile("STARTING")
+		if err := writeStatusFile("STARTING"); err != nil {
+			log.Printf("writeStatusFile: %v", err)
+		}
 		if !vmExists(ctx) {
-			writeStatusFile("PROVISIONING")
+			if err := writeStatusFile("PROVISIONING"); err != nil {
+				log.Printf("writeStatusFile: %v", err)
+			}
 			runUp(ctx, nil)
 		}
 		runServe(ctx, cancel, *port, *allowAll)
@@ -348,7 +352,9 @@ func sendStatus(ctx context.Context) {
 	tuiProg.SendStatus(u)
 
 	// Write status file for external consumers (e.g. menu bar app icon)
-	writeStatusFile(u.VMStatus)
+	if err := writeStatusFile(u.VMStatus); err != nil {
+		log.Printf("writeStatusFile: %v", err)
+	}
 }
 
 // ── up ───────────────────────────────────────────────────────────
