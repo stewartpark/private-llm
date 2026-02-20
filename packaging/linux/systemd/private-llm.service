@@ -1,0 +1,20 @@
+[Unit]
+Description=Private LLM Agent Proxy
+Documentation=https://github.com/stewartpark/private-llm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=private-llm
+Group=private-llm
+WorkingDirectory=/var/lib/private-llm
+ExecStart=/usr/bin/private-llm --config /etc/private-llm/agent.json
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

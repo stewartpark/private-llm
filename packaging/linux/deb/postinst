@@ -1,0 +1,37 @@
+#!/bin/sh
+# postinst script for private-llm
+
+set -e
+
+case "$1" in
+    configure)
+        # Create the private-llm user and group if they don't exist
+        if ! getent group private-llm > /dev/null 2>&1; then
+            groupadd --system private-llm
+        fi
+        if ! id private-llm > /dev/null 2>&1; then
+            useradd --system --gid private-llm --home-dir /var/lib/private-llm --no-create-home private-llm
+        fi
+
+        # Create data and config directories with proper permissions
+        mkdir -p /var/lib/private-llm
+        chown private-llm:private-llm /var/lib/private-llm
+        chmod 755 /var/lib/private-llm
+
+        mkdir -p /etc/private-llm
+        chown private-llm:private-llm /etc/private-llm
+        chmod 755 /etc/private-llm
+
+        # Reload systemd daemon to pick up the new service
+        systemctl daemon-reload
+
+        # Enable and start the service (but don't fail if systemd isn't running)
+        if command -v systemctl > /dev/null 2>&1; then
+            systemctl enable private-llm.service 2>/dev/null || true
+        fi
+        ;;
+    *)
+        ;;
+esac
+
+exit 0

@@ -27,6 +27,7 @@ type Config struct {
 	SubnetCIDR    string `json:"subnet_cidr"`
 	Subnet        string `json:"subnet"`
 	DisableHSM    bool   `json:"disable_hsm"`
+	ListenAddr    string `json:"listen_addr"`
 }
 
 var cfg Config
@@ -40,10 +41,10 @@ func defaultConfigPath() string {
 }
 
 func configPathOrDefault(path string) string {
-	if path == "" {
-		return defaultConfigPath()
+	if path != "" {
+		return path
 	}
-	return path
+	return defaultConfigPath()
 }
 
 // loadConfig loads and validates config from file. Fails if file is missing.
@@ -116,6 +117,9 @@ func applyDefaults() {
 	}
 	if cfg.Subnet == "" {
 		cfg.Subnet = "private-llm-subnet"
+	}
+	if cfg.ListenAddr == "" {
+		cfg.ListenAddr = "127.0.0.1"
 	}
 }
 

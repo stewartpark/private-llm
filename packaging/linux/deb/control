@@ -1,0 +1,10 @@
+Package: private-llm
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: systemd
+Maintainer: Stewart Park <stewart@private-llm>
+Description: Private LLM Agent Proxy with mTLS and auto-scaling GPU VM
+ A local proxy that connects to a remote GCP VM running Ollama with
+ zero-trust mTLS authentication and auto-scale-to-zero infrastructure.

@@ -177,7 +177,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 	// Send static config for dashboard display
 	tuiProg.SetConfig(tui.ConfigMsg{
 		Network:       cfg.Network,
-		ListenAddr:    fmt.Sprintf("127.0.0.1:%d", port),
+		ListenAddr:    fmt.Sprintf("%s:%d", cfg.ListenAddr, port),
 		Provider:      "GCP",
 		MachineType:   cfg.MachineType,
 		Zone:          cfg.Zone,
@@ -188,7 +188,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", proxyHandler)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	addr := fmt.Sprintf("%s:%d", cfg.ListenAddr, port)
 
 	// Check if port is available before starting
 	ln, err := net.Listen("tcp", addr)

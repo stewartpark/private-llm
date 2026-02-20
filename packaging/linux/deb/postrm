@@ -1,0 +1,20 @@
+#!/bin/sh
+# postrm script for private-llm
+
+set -e
+
+case "$1" in
+    remove|upgrade)
+        # Don't remove data directory on upgrade or remove
+        # Data is preserved for potential reinstallation
+        ;;
+    purge)
+        # Remove data directory on purge
+        rm -rf /var/lib/private-llm
+        rm -rf /etc/private-llm
+        ;;
+    *)
+        ;;
+esac
+
+exit 0
