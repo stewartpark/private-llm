@@ -48,26 +48,13 @@ jobs:
           cache: true
           cache-dependency-path: cli/go.sum
 
-      - name: Install create-dmg
-        run: brew install create-dmg
-
       - name: Build
         run: make build
 
-      - name: Create DMG
-        run: |
-          create-dmg \
-            --volname "Private LLM" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Private LLM.app" 175 190 \
-            --app-drop-link 425 190 \
-            --no-internet-enable \
-            "bin/Private-LLM.dmg" \
-            "bin/Private LLM.app"
+      - name: Zip app bundle
+        run: cd bin && zip -r "Private-LLM.app.zip" "Private LLM.app"
 
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" bin/Private-LLM.dmg
+        run: gh release upload "${{ github.ref_name }}" bin/Private-LLM.app.zip
