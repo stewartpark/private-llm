@@ -5,6 +5,12 @@
 <h1 align="center">Private LLM</h1>
 
 <p align="center">
+  <a href="https://github.com/stewartpark/private-llm/releases/latest/download/Private-LLM.dmg">
+    <img src="misc/macos-badge.png" alt="Download for macOS" height="48">
+  </a>
+</p>
+
+<p align="center">
   <strong>Enterprise-grade security. Zero-trust architecture. No hardware to buy.</strong><br>
   A single binary with mTLS, private CA, cert pinning, per-session secret rotation, IP-locked firewalls, and HSM-backed encryption — all provisioned automatically.<br>
   Your data never touches a third party. Deploy in minutes.
