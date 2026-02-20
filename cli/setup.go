@@ -411,6 +411,11 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.Subnet = promptString("Subnet name", orDefault(cfg.Subnet, "private-llm-subnet"))
 	cfg.SubnetCIDR = promptString("Subnet CIDR", orDefault(cfg.SubnetCIDR, "10.10.0.0/24"))
 
+	// ── Listening ────────────────────────
+	sectionHeader("Listening")
+
+	cfg.ListenAddr = promptString("Listen address", orDefault(cfg.ListenAddr, "127.0.0.1"))
+
 	// ── Security ─────────────────────────
 	sectionHeader("Security")
 

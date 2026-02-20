@@ -3,7 +3,8 @@ version: 2
 project_name: private-llm
 
 builds:
-  - dir: ./cli
+  - id: cli
+    dir: ./cli
     binary: private-llm
     ldflags:
       - -s -w -X main.version={{.Version}}
@@ -34,3 +35,31 @@ source:
 
 changelog:
   sort: asc
+
+nfpms:
+  - id: linux_packages
+    package_name: private-llm
+    vendor: Stewart Park
+    homepage: https://github.com/stewartpark/private-llm
+    maintainer: Stewart Park <stewart@private-llm>
+    description: Private LLM Agent Proxy with mTLS and auto-scaling GPU VM
+    license: MIT
+    dependencies:
+      - systemd
+    builds:
+      - cli
+    contents:
+      - src: ./packaging/linux/systemd/private-llm.service
+        dst: /usr/lib/systemd/system/private-llm.service
+      - dst: /var/lib/private-llm
+        type: dir
+        mode: "0755"
+      - dst: /etc/private-llm
+        type: dir
+        mode: "0755"
+    scripts:
+      postinstall: ./packaging/linux/deb/postinst
+      postremove: ./packaging/linux/deb/postrm
+    formats:
+      - deb
+      - rpm

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Enterprise-grade local LLM proxy with mTLS, zero-trust security, auto-rotating certs, and dynamic firewall. Single Go binary + macOS app. No third parties in data path.
+Enterprise-grade local LLM proxy with mTLS, zero-trust security, auto-rotating certs, and dynamic firewall. Single Go binary + macOS app + Linux systemd service. No third parties in data path.
 
 **Deployed Infrastructure**: Go/Pulumi GCP provisioning (no Terraform). State stored locally at `~/.config/private-llm/state/`.
 
@@ -168,6 +168,58 @@ Ops Loop (single goroutine):
 
 ---
 
+### 7b. Linux Support: Systemd Service
+
+**Decision**: Run as systemd service (`private-llm` user) on Linux servers for shared multi-user access.
+
+**Why**:
+- Shared resource: multiple users can connect to the same proxy
+- Service management: automatic restart, logging, dependency handling
+- Listen address configurable via `private-llm configure` (set `0.0.0.0` for multi-user access)
+
+**How It Works**:
+- Service runs as `private-llm` system user (not root)
+- Config: `/etc/private-llm/agent.json` (created via `private-llm configure --config /etc/private-llm/agent.json`)
+- Data directory: `/var/lib/private-llm/`
+
+**Package Contents**:
+| Path | Purpose |
+|------|-------|
+| `/usr/bin/private-llm` | CLI binary |
+| `/etc/private-llm/` | Configuration directory |
+| `/var/lib/private-llm/` | Runtime data (Pulumi state, certs) |
+| `/usr/lib/systemd/system/private-llm.service` | Systemd unit file |
+
+**Installation**:
+```bash
+# Debian/Ubuntu
+sudo dpkg -i private-llm_*.deb
+
+# RHEL/CentOS/Fedora
+sudo rpm -ivh private-llm-*.rpm
+
+# Create config (interactive setup)
+sudo -u private-llm private-llm configure --config /etc/private-llm/agent.json
+
+# Start service
+sudo systemctl start private-llm
+sudo systemctl status private-llm
+```
+
+**Configuration**:
+```bash
+# Reconfigure
+sudo -u private-llm private-llm configure --config /etc/private-llm/agent.json
+
+# Restart service
+sudo systemctl restart private-llm
+
+# View logs
+journalctl -u private-llm -f
+```
+
+---
+
 ### 8. Interactive Setup: Styled CLI with Fallbacks
 
 **Decision**: Rich arrow-key navigation with numbered fallback.
@@ -181,6 +233,7 @@ Ops Loop (single goroutine):
 - HSM encryption toggle
 - Default persistence (press Enter)
 - Input validation required fields
+- Listen address prompt (default: `127.0.0.1`, set `0.0.0.0` for shared access)
 
 ---
 
@@ -189,7 +242,7 @@ Ops Loop (single goroutine):
 ### CLI Core (`cli/`)
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `main.go` | Entry point: `up`, `down`, `configure`, Serve (default) |
 | `ops.go` | Serialized infra ops loop (boot, recovery, TUI actions) |
 | `proxy.go` | HTTP proxy handler (Ollama port 11434 → VM 8080) |
@@ -204,7 +257,7 @@ Ops Loop (single goroutine):
 ### Infrastructure (`cli/infra/`)
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `program.go` | Pulumi program definition (infrastructure resource graph) |
 | `stack.go` | Pulumi Automation API wrapper (up/down/preview/import/refresh) |
 | `types.go` | Config structs and resource result types |
@@ -219,7 +272,7 @@ Ops Loop (single goroutine):
 ### TUI (`cli/tui/`)
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `tui.go` | Main TUI program (bubbletea), status updates, event dispatch |
 | `model.go` | Dashboard model (VM status, network info, token counts) |
 | `view.go` | Renderers for boot animation, dashboard, logs |
@@ -230,15 +283,26 @@ Ops Loop (single goroutine):
 ### macOS App (`app/`)
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `main.swift` | NSApplication entry point |
 | `AppDelegate.swift` | Status polling, menu bar icon, window visibility |
 | `TerminalWindowController.swift` | TerminalView, process management, env extraction |
 
+### Linux Packaging (`packaging/linux/`)
+
+| Path | Purpose |
+|------|-------|
+| `systemd/private-llm.service` | Systemd unit template |
+| `deb/control` | DEB package control file |
+| `deb/postinst` | DEB post-install script |
+| `deb/postrm` | DEB post-remove script |
+| `rpm/private-llm.spec` | RPM spec file |
+| `build.sh` | Build script for packaging |
+
 ### Embedded Assets
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `cli/embed.go` | Embeds startup script and Caddyfile |
 | `cli/config/vm-startup.sh` | VM startup script (Ollama install, GPU setup, idle monitor) |
 | `cli/config/Caddyfile` | Reverse proxy config (mTLS validation, bearer token) |
@@ -246,11 +310,13 @@ Ops Loop (single goroutine):
 ### Configuration Paths
 
 | Path | Purpose |
-|------|---------|
+|------|-------|
 | `~/.config/private-llm/agent.json` | CLI configuration (project, zone, VM name, models, etc.) |
 | `~/.config/private-llm/certs/` | Local mTLS certs + tokens |
 | `~/.config/private-llm/state/` | Pulumi state (local file backend) |
 | `~/.config/private-llm/status` | VM status for macOS app |
+| `/etc/private-llm/agent.json` | Linux system config (via `--config`) |
+| `/var/lib/private-llm/` | Linux runtime data directory |
 
 ---
 
@@ -271,10 +337,11 @@ Ops Loop (single goroutine):
 | Retry Delay | 5s | Between retries |
 | Poll Interval | 5s | Status polling |
 | Grace Period | 30 min | First boot (package install) |
+| Listen Addr | 127.0.0.1 | Bind address (set `0.0.0.0` for shared access) |
 
 ---
 
-## GCP GPU Availability ( Zones per Machine Type)
+## GCP GPU Availability (Zones per Machine Type)
 
 | GPU Family | Zones | GPU |
 |------------|-------|-----|
@@ -345,6 +412,11 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 - Ensure external IP detection works: `curl https://api.ipify.org`
 - Temporarily allow all: `private-llm -allow-all` (not recommended)
 
+### Linux Service Issues
+- Check service status: `sudo systemctl status private-llm`
+- View logs: `journalctl -u private-llm -f`
+- Restart service: `sudo systemctl restart private-llm`
+
 ---
 
 ## Future Roadmap
@@ -378,4 +450,4 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 
 ---
 
-*Last updated: Generated from codebase analysis. Agents: maintain this file alongside code changes.*
+*Last updated: 2026-02-19 - Added Linux systemd service support*
