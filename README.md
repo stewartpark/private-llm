@@ -170,7 +170,7 @@ All config values can be passed as flags to `up`. They override the config file 
 | `--network` | `private-llm` | VPC network name |
 | `--region` | Derived from zone | GCP region |
 | `--machine-type` | `g4-standard-48` | VM machine type (determines GPU) |
-| `--default-model` | `qwen3-coder-next:q8_0` | Model to pull and warm on boot |
+| `--default-model` | `qwen3.5:122b` | Model to pull and warm on boot |
 | `--context-length` | `262144` | Ollama context window size |
 | `--idle-timeout` | `300` | Seconds of idle before VM auto-stops |
 | `--subnet-cidr` | `10.10.0.0/24` | VPC subnet CIDR |
