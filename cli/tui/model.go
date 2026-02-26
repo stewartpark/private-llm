@@ -64,7 +64,7 @@ type ConfigMsg struct {
 	Provider      string // e.g. "GCP"
 	MachineType   string // e.g. "g4-standard-48"
 	Zone          string // e.g. "us-central1-a"
-	ModelName     string // e.g. "qwen3-coder-next:q8_0"
+	ModelName     string // e.g. "qwen3.5:122b"
 	ContextLength int    // e.g. 262144
 }
 
