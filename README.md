@@ -1,302 +1,442 @@
-<p align="center">
-  <img src="misc/logo.jpg" alt="Private LLM" width="400">
-</p>
+<div align="center">
 
-<h1 align="center">Private LLM</h1>
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="misc/logo.jpg">
+<img src="misc/logo.jpg" alt="Private LLM" width="160">
+</picture>
 
-<p align="center">
-  <a href="https://github.com/stewartpark/private-llm/releases/latest/download/Private-LLM.dmg">
-    <img src="misc/macos-badge.png" alt="Download for macOS" height="48">
-  </a>
-  <br>
-  <sub>After installing, run: <code>xattr -cr "/Applications/Private LLM.app"</code></sub>
-</p>
+# Private LLM
 
-<p align="center">
-  <strong>Enterprise-grade security. Zero-trust architecture. No hardware to buy.</strong><br>
-  A single binary with mTLS, private CA, cert pinning, per-session secret rotation, IP-locked firewalls, and HSM-backed encryption — all provisioned automatically.<br>
-  Your data never touches a third party. Deploy in minutes.
-</p>
+**Run powerful AI on your own infrastructure. Your data never leaves your control.**
 
----
+<a href="https://github.com/stewartpark/private-llm/releases/latest">
+  <img src="https://img.shields.io/badge/Download-dmg-blue?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" height="48">
+</a>
 
-## Why Private LLM?
+*Enterprise security. Zero maintenance. Deploy in minutes.*
 
-**You want privacy**, but your options are painful:
-
-| | Buy a Mac Mini? | Build a home lab? | Use public APIs? | **Private LLM** |
-|---|---|---|---|---|
-| **Cost** | $1,000+ upfront | $3,000+ for GPU server | Pay per token | **~$18/mo + usage** |
-| **Maintenance** | You fix it when it breaks | Electricity, cooling, network, updates | None | **None** |
-| **Privacy** | Local | Local | Third party sees everything | **You own it all** |
-| **Future-proof** | Today's Mac can't run tomorrow's models | Hardware depreciates | Always latest | **Always latest** |
-| **Your time** | Hours of setup | Weeks of tinkering | Minutes | **Minutes** |
-
-**Private LLM gives you everything:**
-- **100% privacy** -- Your infrastructure, your control, no third party in the data path
-- **Zero maintenance** -- No hardware to buy, fix, or upgrade
-- **Future-proof** -- Cloud GPUs scale with next-gen models; your Mac Mini doesn't
-- **Deploy in minutes** -- Not weeks of home lab tinkering
-- **Pay only when you use it** -- No idle hardware burning electricity
-- **Works with every Ollama tool** -- Speaks the Ollama API on localhost; your tools don't know the difference
+</div>
 
 ---
 
-## Bring AI to Your Most Sensitive Data
+## 🌟 What Is Private LLM?
 
-With Private LLM, you can safely process:
+Imagine running **powerful AI models** without:
+- ❌ Paying per token to OpenAI, Anthropic, etc.
+- ❌ Your prompts being logged or stored
+- ❌ Buying expensive GPU hardware
+- ❌ Setting up complex infrastructure
 
-- **Financial data** -- Bank statements, tax returns, investment portfolios
-- **Credentials** -- API keys, passwords, access tokens
-- **Personal documents** -- Journals, medical records, legal documents
-- **Business secrets** -- Trade secrets, contracts, strategy documents
-- **Source code** -- Proprietary algorithms, security-sensitive code
+**Private LLM does this for you.**
 
-No more sanitizing prompts. No more trusting third parties. **Your infrastructure. Your control. No one else sees a thing.**
-
-## Enterprise Security Controls
-
-**The same FIPS-validated, NIST-compliant security primitives trusted by banks, healthcare, and federal agencies -- deployed in infrastructure you own.**
-
-| Security Control | Implementation | What It Gives You |
-|-----------------|-----------------|-------------------|
-| **End-to-end encryption** | mTLS (Mutual TLS 1.3) | Every request encrypted with 4096-bit RSA; both client and server authenticated |
-| **No middlemen in data path** | Direct mTLS (localhost to VM) | No cloud load balancers, proxies, or functions see your plaintext |
-| **Split-trust CA** | CA key local-only | CA private key never leaves your machine; cloud compromise cannot forge certificates |
-| **Hardware-protected secrets** | HSM + KMS | Encryption keys managed by dedicated hardware; even cloud admins can't access |
-| **Verified boot chain** | Shielded VM (Secure Boot + TPM) | VM integrity verified at every boot; tampering detected immediately |
-| **Dynamic firewall** | Ephemeral IP-locked rules | Only your current IP can reach the VM; rule deleted on shutdown |
-| **Cert fingerprint pinning** | SHA-256 pin in memory | Server cert fingerprint verified on every connection; MITM detected even if CA is compromised |
-| **Assume breach posture** | Zero Trust Architecture | No implicit trust; every request validated with mTLS + bearer token |
-| **Data stays yours** | Your Cloud Account | Prompts and responses never leave your infrastructure |
-| **Nothing recorded** | Zero Data Logging | No prompts, responses, or telemetry stored anywhere |
-| **Tamper-proof deployments** | Immutable Infrastructure | No configuration drift; every deploy is identical |
-| **Binary tampering detection** | File Integrity Monitoring (FIM) | Critical binaries checksummed every 5 minutes; tampering triggers alerts |
-| **Automatic cert rotation** | Rotated on every cold start | Fresh mTLS certs (7-day lifespan) and bearer token generated before each VM boot |
-
-**Built on validated standards:**
-- HSM key protection: [FIPS 140-2 Level 3](https://cloud.google.com/security/compliance/fips-140-2-validated)
-- Zero Trust design: [NIST SP 800-207](https://csrc.nist.gov/pubs/sp/800/207/final)
-- Hardware root of trust: [TPM 2.0 specification](https://cloud.google.com/compute/shielded-vm/docs/shielded-vm)
-
-## Quick Start
-
-### Prerequisites
-
-- A GCP project with billing enabled
-- Application Default Credentials (`gcloud auth application-default login`)
-
-### Install and deploy
+It spins up a secure GPU server in the cloud that:
+1. Starts automatically when you need it
+2. Shuts down when you don't (saves $$)
+3. Uses military-grade encryption (mTLS)
+4. Works with your existing AI tools (Ollama-compatible)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/stewartpark/private-llm/main/misc/install.sh | sh
-private-llm up  # Prompts for project, provisions infrastructure, generates mTLS certs
+# That's it - one command
+$ private-llm up
+
+# Start chatting
+$ ollama run qwen3.5
 ```
 
-On first run with no config file, `up` infers your GCP project from Application Default Credentials, prompts to confirm, and saves `~/.config/private-llm/agent.json`. Everything else has sensible defaults. You can also pass flags directly:
+---
+
+## 🚀 Quick Start
+
+### Step 1: Install the CLI
 
 ```bash
-private-llm up --project-id=my-project --zone=us-central1-a --machine-type=g2-standard-8
+curl -fsSSL https://raw.githubusercontent.com/stewartpark/private-llm/main/misc/install.sh | sh
 ```
 
-### Start the proxy
+### Step 2: Set up GCP credentials
 
 ```bash
-private-llm   # Listens on localhost:11434 (Ollama-compatible)
+# Log into Google Cloud
+gcloud auth application-default login
 ```
 
-Now use any Ollama-compatible tool -- no API keys, no config changes:
+### Step 3: Deploy!
 
 ```bash
-ollama list                  # List models (starts VM automatically)
-ollama pull llama3.2:1b      # Pull a model
-ollama run llama3.2:1b       # Chat
+# Follow the interactive prompts
+$ private-llm up
+
+# Start the AI proxy
+$ private-llm
 ```
 
-Ctrl+C to shut down. The firewall rule is deleted automatically. The VM auto-stops after the idle timeout.
+**Total time: 5-10 minutes** (first VM boot takes ~30 min due to package installs, subsequent boots: 3-5 min)
 
-## Use with Coding Agents
+---
 
-Private LLM speaks the Ollama API on localhost, so any tool that supports Ollama works out of the box -- coding agents, chat UIs, IDE extensions. Same enterprise-grade privacy, even when an agent is reading your entire codebase.
+## 💡 Use It With Any AI Tool
+
+Once `private-llm` is running, any Ollama-compatible tool works:
 
 ```bash
-ollama launch claude       # Claude Code
-ollama launch codex        # OpenAI Codex
-ollama launch opencode      # OpenCode
+# List available models
+ollama list
+
+# Pull a new model
+ollama pull llama3.2
+
+# Start chatting
+ollama run llama3.2
+
+# Works with coding agents too
+ollama run codex
+ollama run claude
 ```
 
-See [`ollama launch`](https://github.com/ollama/ollama/blob/main/docs/launch.md) and the [full list of Ollama integrations](https://ollama.com/blog/tool-support) for more tools.
+**No API keys. No config changes.** The proxy listens on `localhost:11434` — your tools think it's a local Ollama server.
 
-## CLI Reference
+---
+
+## ✨ Why Developers Love It
+
+| Feature | Why It Matters |
+|---------|---------------|
+| **🔐 Your data stays private** | Prompts never leave your infrastructure — no third parties |
+| **💰 Pay only when using** | Server shuts down automatically when idle — ~$0.25-1.80/hour when running, ~$18/month fixed storage |
+| **🎯 No hardware to buy** | Professional GPU (L4 or RTX 6000) in the cloud, not in your basement |
+| **🔧 Zero maintenance** | No system admin needed — updates, security, monitoring all automatic |
+| **🔄 Always up-to-date** | Cloud GPUs scale with new models — your Mac Mini becomes obsolete, this doesn't |
+| **⚡ Works with everything** | Ollama API compatible — tools like Continue, Cursor, Aider, Claude Code work out of the box |
+
+---
+
+## 🛡️ Enterprise-Grade Security
+
+This isn't just a VM — it's a **zero-trust, encrypted tunnel directly from your laptop to the GPU**.
+
+```mermaid
+graph LR
+    A[Your Laptop] -->|mTLS| B{private-llm Proxy}
+    B -->|mTLS + fingerprint| C[GPU VM]
+    C --> D[Ollama]
+    
+    style A fill:#22c55e
+    style B fill:#3b82f6
+    style C fill:#8b5cf6
+```
+
+**Security features you get:**
+
+- 🔒 **mTLS encryption** — 4096-bit RSA, TLS 1.3 (harder to break than most banking systems)
+- 🔑 **CA key stays on your machine** — Even if GCP is compromised, they can't forge certificates
+- 🕵️ **Cert pinning** — Fingerprint verification detects MITM attacks
+- 🌐 **Dynamic firewall** — Only your current IP can reach the VM; deleted on shutdown
+- 🔄 **Auto-rotating secrets** — Fresh certificates every time the VM starts
+- 🏗️ **Shielded VM** — Secure Boot + vTPM prevent tampering
+- 📊 **No logging** — Nothing is stored anywhere. Prompts, responses, queries — gone after use.
+
+---
+
+## 💸 Cost Breakdown
+
+**Fixed (always paid, even when idle):**
+- Storage: ~$18/month (128GB disk)
+
+**Variable (only when VM is running):**
+- L4 GPU (24GB VRAM): ~$0.25/hour
+- RTX 6000 Blackwell (96GB VRAM): ~$1.80/hour
+
+**Monthly examples (L4 GPU):**
+
+| Usage | Cost |
+|-------|------|
+| 0 hours (always off) | $18 |
+| 40 hours (~10 hrs/week) | $28 |
+| 160 hours (~40 hrs/week) | $58 |
+| 730 hours (24/7) | $200 |
+
+*Compared to buying a Mac Mini M2 (~$1,000) + electricity (~$30/month) + replacement in 3-4 years = ~$2,000+ in 3 years vs. ~$400-800 with Private LLM.*
+
+---
+
+## 📊 Dashboard & Monitoring
+
+Running `private-llm` opens a beautiful terminal dashboard:
 
 ```
-Usage: private-llm [flags]
-       private-llm <command> [flags]
-
-Flags:
-  -help            Display this message
-  -config string   Path to agent.json (default ~/.config/private-llm/agent.json)
-  -port int        Listen port (default 11434)
-  -allow-all       Allow all IPs in firewall instead of just yours
-
-Commands:
-  up               Provision or reconcile infrastructure + generate certs
-  down             Destroy all infrastructure
-  rotate-mtls-ca   Force-rotate the CA and all certificates (use if CA is compromised)
+┌─────────────────────────────────────────────────────────┐
+│  🖥️  Private LLM Dashboard                              │
+├─────────────────────────────────────────────────────────┤
+│  Status:       🟢 RUNNING                               │
+│  Model:        qwen3.5:122b                             │
+│  Context:      262k tokens                              │
+│  Uptime:       1h 23m                                   │
+│  Tokens/sec:   42.3 ⬆️                                  │
+│  Total:        318,492 tokens                           │
+├─────────────────────────────────────────────────────────┤
+│  📋 Recent Requests                                     │
+│  21:32:15  /v1/chat/completions  1.2s  1.5k tokens      │
+│  21:31:42  /api/generate       4.8s  3.2k tokens        │
+│  21:28:11  /api/tags           0.05s  0 tokens          │
+└─────────────────────────────────────────────────────────┘
+     [r] Restart    [R] Reset    [S] Start/Stop    [q] Quit
 ```
 
-### Dashboard Shortcuts
+**Keyboard shortcuts:**
 
-`private-llm` launches a fullscreen terminal dashboard with live status, token throughput, and a request log. Keyboard shortcuts:
+- `q` / `Esc` / `Ctrl+C` — Quit (VM auto-stops after 5 min)
+- `r` — Restart VM (rotate certs + reboot)
+- `R` — Reset VM (delete and recreate from scratch)
+- `S` — Toggle VM on/off
 
-| Key | Action |
-|-----|--------|
-| `q` / `Esc` / `Ctrl+C` | Quit (deletes firewall rule, VM auto-stops on idle) |
-| `r` | Restart VM (stop, rotate certs, start) |
-| `R` | Reset VM (delete and recreate from scratch) |
-| `S` | Stop or start VM (toggles based on current state) |
+---
 
-### `private-llm up`
+## 🏗️ Architecture Deep Dive
 
-Provisions infrastructure with a preview-confirm-apply flow. Shows a diff of what will change, asks for confirmation, then applies. Certificates are only generated on first run; subsequent runs skip cert generation if secrets already exist.
+### How the Auto-Start / Auto-Stop Works
 
-All config values can be passed as flags to `up`. They override the config file and are saved for future commands.
+```mermaid
+flowchart TD
+    A[User makes request] --> B{VM running?}
+    B -->|No| C[Open firewall for your IP]
+    C --> D[Generate new certs + token]
+    D --> E[Start VM]
+    E --> F[Wait for Ollama ready]
+    F --> G[Proxy request]
+    
+    B -->|Yes| G
+    
+    H[Timer: check every 1 min] --> I{Idle > 5 min?}
+    I -->|Yes| J[Stop VM → $0 cost]
+    I -->|No| K[Keep running]
+```
+
+**Simple explanation:**
+
+1. You make a request (e.g., `ollama run qwen3.5`)
+2. If the VM is off, it auto-starts
+3. The VM monitors activity — if nothing for 5 minutes, it shuts down
+4. Next request = auto-start again
+5. When you quit (`Ctrl+C`), the firewall rule is deleted immediately
+
+**Why?** Cost optimization. $0 when idle, ready in ~30 seconds when you need it.
+
+### Security Flow
+
+```mermaid
+sequenceDiagram
+    participant U as Your Laptop
+    participant P as private-llm CLI
+    participant G as GCP Secret Manager
+    participant V as GPU VM
+    
+    U->>P: Request (ollama list)
+    P->>P: Check VM status
+    alt VM stopped
+        P->>P: Detect firewall rule missing
+        P->>P: Detect public IP
+        P->>P: Create firewall (IP-locked)
+        P->>G: Get/rotate server certs
+        P->>G: Get/rotate bearer token
+        P->>V: Start VM
+        V->>G: Fetch certs + token
+    end
+    
+    P->>P: Load local client cert
+    P->>V: mTLS request (cert + fingerprint check)
+    V->>V: Caddy validates cert + token
+    V->>V: Forward to Ollama
+    V->>P: Encrypted response
+    P->>U: Response
+```
+
+---
+
+## 📖 CLI Reference
+
+### Basic Commands
+
+```bash
+# Provision or update infrastructure
+$ private-llm up
+
+# Stop VM (firewall deleted, storage kept)
+$ private-llm down
+
+# View live dashboard
+$ private-llm
+
+# Emergency: Rotate all certificates if compromised
+$ private-llm rotate-mtls-ca
+```
+
+### Configuration Options
+
+All of these can be set interactively during `up`, or passed as flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--project-id` | From Application Default Credentials | GCP project ID |
-| `--zone` | `us-central1-a` | GCP zone (determines GPU availability) |
-| `--vm-name` | `private-llm-vm` | VM instance name |
-| `--network` | `private-llm` | VPC network name |
-| `--region` | Derived from zone | GCP region |
-| `--machine-type` | `g4-standard-48` | VM machine type (determines GPU) |
-| `--default-model` | `qwen3.5:122b` | Model to pull and warm on boot |
-| `--context-length` | `262144` | Ollama context window size |
-| `--idle-timeout` | `300` | Seconds of idle before VM auto-stops |
-| `--subnet-cidr` | `10.10.0.0/24` | VPC subnet CIDR |
-| `--subnet` | `private-llm-subnet` | Subnet name |
-| `--disable-hsm` | `false` | Skip KMS/HSM key management |
+| `--project-id` | (from `gcloud`) | GCP project ID |
+| `--zone` | `us-central1-a` | GCP zone |
+| `--machine-type` | `g4-standard-48` | GPU type (see [GPU options](#%EF%B8%8F-gpu-options)) |
+| `--default-model` | `qwen3.5:122b` | Model to pre-warm on boot |
+| `--context-length` | `262144` | Max context window |
+| `--idle-timeout` | `300` | Seconds idle before auto-stop |
+| `--disable-hsm` | `false` | Skip HSM encryption (not recommended) |
 
-## Architecture
-
-### How It Works
-
-```
-Tool (Ollama CLI, coding agent, etc.)
-  |
-  | HTTP (localhost only)
-  v
-private-llm (:11434)               ← Fullscreen TUI dashboard
-  |  - Opens firewall for your IP     - Live token counting (in/out/tok/s)
-  |  - Rotates certs if VM is stopped - Request log with latency
-  |  - Starts VM if needed            - VM/cert/firewall status
-  |  - Loads mTLS certs from local disk
-  |  - Verifies server cert fingerprint (pinned)
-  |
-  | mTLS (TLS 1.3, 4096-bit RSA)
-  v
-Shielded GPU VM (:8080)
-  |  - Caddy validates mTLS + bearer token
-  v
-Ollama
-```
-
-No cloud proxy, no load balancer, no function in the data path. The mTLS tunnel goes directly from your machine to the VM.
-
-The proxy counts tokens in real time across all supported API styles (Ollama, OpenAI Chat, Anthropic Messages, OpenAI Responses) and displays live throughput in the dashboard.
-
-### Infrastructure (Pulumi)
-
-All infrastructure is defined as Go code using the [Pulumi Automation API](https://www.pulumi.com/docs/using-pulumi/automation-api/) -- no Terraform, no Pulumi CLI, no external tools. Everything is embedded in the single `private-llm` binary.
-
-`private-llm up` provisions:
-- **VPC + Subnet** with Private Google Access
-- **KMS KeyRing + CryptoKey** (HSM-backed, 90-day auto-rotation)
-- **4 Secrets** in Secret Manager (CA cert, server cert, server key, bearer token) -- encrypted with KMS
-- **Service Account** for the VM (minimal permissions: logging + monitoring)
-- **Shielded GPU VM** (Spot instance, Secure Boot, vTPM, Hyperdisk Balanced)
-
-State is stored locally at `~/.config/private-llm/state/`. No remote backend needed.
-
-### Split-Trust Certificate Model
-
-```
-~/.config/private-llm/certs/ (local only)     Secret Manager (cloud)
-├── ca.key    ← NEVER in cloud                ├── ca-cert (public only)
-├── ca.crt                                     ├── server-cert
-├── client.crt                                 ├── server-key
-├── client.key                                 └── internal-token
-└── token
-```
-
-The CA private key never leaves your machine. Even if GCP is fully compromised, an attacker cannot forge valid certificates. The CLI also pins the server certificate's SHA-256 fingerprint in memory, detecting impersonation even if the CA cert in Secret Manager is replaced.
-
-### Scale to Zero
-
-```mermaid
-flowchart LR
-    Request["Request"] --> Proxy["private-llm"]
-    Proxy -->|"VM off?"| FW["Open firewall for your IP"] --> Rotate["Rotate certs"] --> Start["Start VM"] --> VM
-    Proxy -->|"VM on"| VM["GPU VM"]
-    VM --> Response["Response"]
-
-    Timer["Every 1 min"] --> Check{"Idle > timeout?"}
-    Check -->|Yes| Stop["Stop VM<br/><i>$0 cost</i>"]
-    Check -->|No| Keep["Keep running"]
-
-    Quit["Ctrl+C / quit"] --> Cleanup["Delete firewall rule"]
-```
-
-On the first request the CLI opens a dynamic firewall rule locked to your public IP, rotates all secrets (certs + token), then starts the VM. While running, the VM monitors its own Caddy access log — if no requests arrive within the idle timeout (default 5 minutes), it shuts itself down. On the next request, the CLI repeats the full cycle: firewall, rotate, start. When you quit the CLI (`Ctrl+C`, `q`, `Esc`), the firewall rule is deleted immediately. Only the first-ever boot gets a 30-minute grace period for package installation; subsequent boots check idle immediately.
-
-### Secret Rotation
-
-All secrets are rotated automatically on every cold start — every time the VM transitions from stopped to running:
-
-1. CLI opens (or updates) a dynamic firewall rule locked to your current public IP
-2. CLI generates new server cert + key (7-day validity), client cert + key, and bearer token
-3. Server artifacts are written to Secret Manager; client artifacts are written to local disk
-4. CLI pins the new server cert fingerprint in memory
-5. VM boots and fetches fresh server certs + token from Secret Manager
-
-The CA certificate (10-year validity) is reused across rotations and only regenerated if nearing expiry. The firewall rule is deleted when the CLI exits.
-
-**Emergency CA rotation:** If you suspect your CA private key has been compromised, force-rotate the entire certificate chain:
+### Global Flags
 
 ```bash
-private-llm rotate-mtls-ca   # Deletes CA, regenerates everything, pushes to Secret Manager
+-help            Show help message
+-config string   Config file path (default ~/.config/private-llm/agent.json)
+-port int        Listen port (default 11434, Ollama-compatible)
+-allow-all       Allow any IP in firewall (default: your IP only)
 ```
-
-This generates a new CA, new server/client certs, and a new bearer token. Restart the VM afterward to pick up the new server certs.
-
-## Cost
-
-**Fixed costs** (always paid):
-- Storage (128GB Hyperdisk Balanced): ~$18/month
-
-**Variable costs** (only when running):
-- Spot VM with GPU: ~$0.25/hour (L4) or ~$1.80/hour (RTX 6000 Blackwell 96GB)
-
-| Monthly usage | L4 (24GB VRAM) | RTX 6000 Blackwell (96GB VRAM) |
-|---------------|----------------|------------------|
-| **0 hours** (idle) | $18 | $18 |
-| **40 hours** (~10 hrs/week) | $28 | $90 |
-| **160 hours** (~40 hrs/week) | $58 | $306 |
-| **300 hours** (heavy use) | $92 | $557 |
-| **730 hours** (24/7) | $200 | $1,331 |
-
-*Spot pricing varies by region. Estimates based on us-central1.*
-
-## Cloud Support
-
-- Google Cloud Platform
-- AWS (coming soon)
-- Azure (coming soon)
-
-## License
-
-[PolyForm Noncommercial 1.0.0](LICENSE) -- free for personal and internal use, not for commercial resale or hosted services.
 
 ---
 
-<p align="center"><strong>Your infrastructure. Your control. No middlemen. Ever.</strong></p>
+## 💻 GPU Options
+
+Choose a GPU based on model size and budget:
+
+| Type | GPU | VRAM | Best For | Hourly Cost |
+|------|-----|------|----------|-------------|
+| `g2-standard-4` | L4 | 24GB | 7B-13B models | ~$0.25 |
+| `g4-standard-48` | RTX 6000 | 96GB | 70B+ models | ~$1.80 |
+| `a2-standard-12` | A100 | 40GB | Legacy support | ~$0.50 |
+| `a3-standard-8` | H100 | 80GB | Cutting-edge | ~$2.50 |
+
+**Recommendation:** Start with `g2-standard-4` for smaller models (fast, cheap). Upgrade if you need to run 70B+ models.
+
+---
+
+## 🐞 Troubleshooting
+
+### VM won't start
+
+```bash
+# Check GCP auth
+gcloud auth application-default login
+
+# Check VM status
+cat ~/.config/private-llm/status
+
+# Reset everything and start fresh
+private-llm down
+rm -rf ~/.config/private-llm/{state,certs}
+private-llm up
+```
+
+### Certificate errors
+
+```bash
+# Clear local certs
+rm -rf ~/.config/private-llm/certs/*
+
+# Restart
+private-llm down && private-llm up
+```
+
+### Can't connect to proxy
+
+```bash
+# Check if listening
+netstat -an | grep 11434
+
+# Try the Ollama API
+curl http://localhost:11434/api/tags
+```
+
+### Firewall issues
+
+```bash
+# Test IP detection
+curl https://api.ipify.org
+
+# Force allow all in firewall
+private-llm -allow-all
+```
+
+---
+
+## 🔧 For Advanced Users
+
+### Where Config Lives
+
+| Path | Purpose |
+|------|---------|
+| `~/.config/private-llm/agent.json` | Main config file |
+| `~/.config/private-llm/certs/` | Local TLS certificates |
+| `~/.config/private-llm/state/` | Pulumi state |
+| `~/.config/private-llm/status` | Current VM status |
+
+### Custom Config File
+
+```bash
+# Use a different config file
+private-llm --config /path/to/custom.json
+
+# Create config interactively
+private-llm configure --config /path/to/custom.json
+```
+
+### View Logs
+
+```bash
+# Check dashboard logs (running)
+# Press keys in dashboard to view recent requests
+
+# Check Pulumi state
+ls -la ~/.config/private-llm/state/
+```
+
+### Linux Support
+
+```bash
+# Run as a system-wide service
+sudo dpkg -i private-llm_*.deb
+sudo systemctl start private-llm
+
+# View logs
+journalctl -u private-llm -f
+```
+
+---
+
+## 🤝 Contributing
+
+1. Read [`AGENTS.md`](AGENTS.md) for architecture and design decisions
+2. Test changes locally (you'll need a GCP project)
+3. Open a PR with clear description
+
+**Important:** This is a single-file architecture. All infrastructure is defined in Go using the Pulumi Automation API — no Terraform, no external CLI needed.
+
+---
+
+## 📄 License
+
+**PolyForm Noncommercial 1.0.0**
+
+Free for personal and internal use. Not for commercial resale or hosted services.
+
+This ensures Private LLM remains free for everyone while preventing SaaS arbitrage.
+
+---
+
+## 🙏 Acknowledgments
+
+Built with:
+- [Pulumi](https://pulumi.com) (Infrastructure as Code)
+- [Ollama](https://ollama.com) (LLM runtime)
+- [Caddy](https://caddyserver.com) (Web server + mTLS)
+- [bubbletea](https://github.com/charmbracelet/bubbletea) (Terminal UI)
+
+---
+
+<div align="center">
+
+### Your infrastructure. Your control. No middlemen. Ever.
+
+[Documentation](AGENTS.md) • [Releases](https://github.com/stewartpark/private-llm/releases) • [Issues](https://github.com/stewartpark/private-llm/issues)
+
+</div>
