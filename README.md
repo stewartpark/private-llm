@@ -40,7 +40,7 @@ It spins up a secure GPU server in the cloud that:
 $ private-llm up
 
 # Start chatting
-$ ollama run qwen3.5
+$ ollama run stewartpark/qwen3.5  # see https://ollama.com/stewartpark/qwen3.5
 ```
 
 ---
@@ -168,7 +168,7 @@ Running `private-llm` opens a beautiful terminal dashboard:
 │  🖥️  Private LLM Dashboard                              │
 ├─────────────────────────────────────────────────────────┤
 │  Status:       🟢 RUNNING                               │
-│  Model:        stewartpark/qwen3.5                      │
+│  Model:        [stewartpark/qwen3.5](https://ollama.com/stewartpark/qwen3.5)                              │
 │  Context:      262k tokens                              │
 │  Uptime:       1h 23m                                   │
 │  Tokens/sec:   42.3 ⬆️                                  │
@@ -213,7 +213,7 @@ flowchart TD
 
 **Simple explanation:**
 
-1. You make a request (e.g., `ollama run qwen3.5`)
+1. You make a request (e.g., `ollama run stewartpark/qwen3.5`, see https://ollama.com/stewartpark/qwen3.5)
 2. If the VM is off, it auto-starts
 3. The VM monitors activity — if nothing for 5 minutes, it shuts down
 4. Next request = auto-start again
@@ -279,7 +279,7 @@ All of these can be set interactively during `up`, or passed as flags:
 | `--project-id` | (from `gcloud`) | GCP project ID |
 | `--zone` | `us-central1-a` | GCP zone |
 | `--machine-type` | `g4-standard-48` | GPU type (see [GPU options](#%EF%B8%8F-gpu-options)) |
-| `--default-model` | `stewartpark/qwen3.5` | Model to pre-warm on boot |
+| `--default-model` | [`stewartpark/qwen3.5`](https://ollama.com/stewartpark/qwen3.5) | Model to pre-warm on boot |
 | `--context-length` | `262144` | Max context window |
 | `--idle-timeout` | `300` | Seconds idle before auto-stop |
 | `--disable-hsm` | `false` | Skip HSM encryption (not recommended) |
