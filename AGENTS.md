@@ -326,7 +326,7 @@ journalctl -u private-llm -f
 |---------|---------|---------|
 | Port | 11434 | Ollama-compatible endpoint (localhost) |
 | VM Machine Type | g4-standard-48 | 1x RTX PRO 6000 (96GB) |
-| Default Model | stewartpark/qwen3.5 (https://ollama.com/stewartpark/qwen3.5) | Pre-warmed on VM boot |
+| Default Model | [`stewartpark/qwen3.5`](https://ollama.com/stewartpark/qwen3.5) | Pre-warmed on VM boot |
 | Context Length | 262144 | Ollama context window |
 | Idle Timeout | 300s | VM auto-stop after idle |
 | Subnet CIDR | 10.10.0.0/24 | Private subnet |
