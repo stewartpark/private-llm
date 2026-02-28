@@ -168,7 +168,7 @@ Running `private-llm` opens a beautiful terminal dashboard:
 │  🖥️  Private LLM Dashboard                              │
 ├─────────────────────────────────────────────────────────┤
 │  Status:       🟢 RUNNING                               │
-│  Model:        [stewartpark/qwen3.5](https://ollama.com/stewartpark/qwen3.5)                              │
+│  Model:        stewartpark/qwen3.5                              │
 │  Context:      262k tokens                              │
 │  Uptime:       1h 23m                                   │
 │  Tokens/sec:   42.3 ⬆️                                  │
