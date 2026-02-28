@@ -104,7 +104,7 @@ func applyDefaults() {
 		cfg.MachineType = "g4-standard-48"
 	}
 	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = "qwen3.5:122b"
+		cfg.DefaultModel = "stewartpark/qwen3.5"
 	}
 	if cfg.ContextLength == 0 {
 		cfg.ContextLength = 262144

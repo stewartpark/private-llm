@@ -400,7 +400,7 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.Zone = promptSelect("Zone", zones, findOption(zones, zoneDefault, 0))
 
 	cfg.VMName = promptString("VM name", orDefault(cfg.VMName, "private-llm-vm"))
-	cfg.DefaultModel = promptString("Default model", orDefault(cfg.DefaultModel, "qwen3.5:122b"))
+	cfg.DefaultModel = promptString("Default model", orDefault(cfg.DefaultModel, "stewartpark/qwen3.5"))
 	cfg.ContextLength = promptInt("Context length", orDefaultInt(cfg.ContextLength, 262144))
 	cfg.IdleTimeout = promptInt("Idle timeout (seconds)", orDefaultInt(cfg.IdleTimeout, 300))
 

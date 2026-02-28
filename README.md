@@ -168,7 +168,7 @@ Running `private-llm` opens a beautiful terminal dashboard:
 │  🖥️  Private LLM Dashboard                              │
 ├─────────────────────────────────────────────────────────┤
 │  Status:       🟢 RUNNING                               │
-│  Model:        qwen3.5:122b                             │
+│  Model:        stewartpark/qwen3.5                      │
 │  Context:      262k tokens                              │
 │  Uptime:       1h 23m                                   │
 │  Tokens/sec:   42.3 ⬆️                                  │
@@ -279,7 +279,7 @@ All of these can be set interactively during `up`, or passed as flags:
 | `--project-id` | (from `gcloud`) | GCP project ID |
 | `--zone` | `us-central1-a` | GCP zone |
 | `--machine-type` | `g4-standard-48` | GPU type (see [GPU options](#%EF%B8%8F-gpu-options)) |
-| `--default-model` | `qwen3.5:122b` | Model to pre-warm on boot |
+| `--default-model` | `stewartpark/qwen3.5` | Model to pre-warm on boot |
 | `--context-length` | `262144` | Max context window |
 | `--idle-timeout` | `300` | Seconds idle before auto-stop |
 | `--disable-hsm` | `false` | Skip HSM encryption (not recommended) |

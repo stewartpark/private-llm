@@ -1,0 +1,101 @@
+# Qwen3.5-122B-A10B (Q4_K_M, 81GB) — Agentic Coding & Tool Use
+# Optimized for: thinking mode + tool calling + coding + browser use
+# Sources: Qwen model card (HuggingFace), Unsloth docs, Ollama defaults
+#
+# Architecture: 122B total params, 10B active (MoE, 256 experts)
+# Context: 262,144 native (extensible to 1M via YaRN)
+
+FROM qwen3.5:122b
+
+# --- Sampling: Thinking Mode + Precise Coding (Qwen official) ---
+# temperature=0.6 for coding precision (vs 1.0 for general)
+# top_k=20, top_p=0.95 — Qwen's recommended defaults
+# min_p=0 — Qwen doesn't use min_p filtering
+# repeat_penalty=1.0 — disabled per Qwen (no benefit, can hurt)
+# presence_penalty not available in Ollama Modelfile; use repeat_penalty=1.0
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER min_p 0.0
+PARAMETER repeat_penalty 1.0
+
+# --- Context & Generation ---
+PARAMETER num_ctx 262144
+PARAMETER num_predict 32768
+
+# --- Stop sequences ---
+PARAMETER stop <|im_end|>
+PARAMETER stop <|endoftext|>
+
+# --- System prompt: agentic coding + tool use + browser ---
+SYSTEM """You are a helpful AI assistant.
+
+Core behaviors:
+- Think step-by-step inside <think> tags before responding
+- Be direct, accurate, and concise — avoid filler or unnecessary hedging
+- When uncertain, use available tools and reasoning to resolve ambiguity before answering
+- Break complex problems into clear steps before solving them
+
+When tools are available:
+- Only call tools that have been explicitly provided to you — never invent tool names or parameters
+- Analyze tool results carefully before deciding the next action
+- Chain multiple tool calls when a task requires several steps
+- If a tool call fails, reassess your approach rather than retrying blindly
+- When the task is complete, summarize what was done and any follow-up needed"""
+
+# --- Chat template: thinking mode + Qwen3-Coder tool calling format ---
+# Based on Ollama's qwen3.5 template with always-on thinking
+TEMPLATE """
+{{- if .Messages }}
+{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+{{- end }}<|im_end|>
+{{ end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}{{ if not $last }}<|im_end|>
+{{ end }}
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+<think>
+{{ end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+<think>
+{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}
+"""

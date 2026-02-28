@@ -109,7 +109,7 @@ if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     rm -f add-google-cloud-ops-agent-repo.sh
 
     # Install Ollama (output logged to prevent metadata runner buffer overflow)
-    if ! curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.17.3 sh > /var/log/ollama-install.log 2>&1; then
+    if ! curl -fsSL https://ollama.com/install.sh | sh > /var/log/ollama-install.log 2>&1; then
         echo "[STEP 1] ERROR: Ollama installation failed"
         echo "[STEP 1] Last 100 lines of /var/log/ollama-install.log:"
         tail -n 100 /var/log/ollama-install.log
@@ -174,6 +174,7 @@ Environment="OLLAMA_CONTEXT_LENGTH=${CONTEXT_LENGTH}"
 Environment="OLLAMA_KEEP_ALIVE=-1"
 Environment="OLLAMA_CUDA_GRAPHS=1"
 Environment="OLLAMA_NUM_THREADS=8"
+Environment="OLLAMA_NO_CLOUD=1"
 ENVEOF
 
 sudo systemctl daemon-reload

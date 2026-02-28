@@ -368,7 +368,7 @@ func runUp(ctx context.Context, args []string) {
 	pNetwork := fs.String("network", "", "VPC network name (default: private-llm)")
 	pRegion := fs.String("region", "", "GCP region (default: derived from zone)")
 	pMachineType := fs.String("machine-type", "", "VM machine type (default: g4-standard-48)")
-	pDefaultModel := fs.String("default-model", "", "Ollama model (default: qwen3.5:122b)")
+	pDefaultModel := fs.String("default-model", "", "Ollama model (default: stewartpark/qwen3.5)")
 	pContextLength := fs.Int("context-length", 0, "Context window size (default: 262144)")
 	pIdleTimeout := fs.Int("idle-timeout", 0, "Idle shutdown seconds (default: 300)")
 	pSubnetCIDR := fs.String("subnet-cidr", "", "Subnet CIDR (default: 10.10.0.0/24)")
