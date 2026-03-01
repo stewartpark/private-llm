@@ -23,6 +23,7 @@ type Config struct {
 	MachineType   string `json:"machine_type"`
 	DefaultModel  string `json:"default_model"`
 	ContextLength int    `json:"context_length"`
+	NumParallel   int    `json:"num_parallel"`
 	IdleTimeout   int    `json:"idle_timeout"`
 	SubnetCIDR    string `json:"subnet_cidr"`
 	Subnet        string `json:"subnet"`
@@ -108,6 +109,9 @@ func applyDefaults() {
 	}
 	if cfg.ContextLength == 0 {
 		cfg.ContextLength = 262144
+	}
+	if cfg.NumParallel == 0 {
+		cfg.NumParallel = 4
 	}
 	if cfg.IdleTimeout == 0 {
 		cfg.IdleTimeout = 300

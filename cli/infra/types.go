@@ -17,6 +17,7 @@ type InfraConfig struct {
 	MachineType   string
 	DefaultModel  string
 	ContextLength int
+	NumParallel   int
 	IdleTimeout   int
 	SubnetCIDR    string
 	Subnet        string

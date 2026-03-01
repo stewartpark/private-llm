@@ -402,6 +402,7 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.VMName = promptString("VM name", orDefault(cfg.VMName, "private-llm-vm"))
 	cfg.DefaultModel = promptString("Default model", orDefault(cfg.DefaultModel, "stewartpark/qwen3.5"))
 	cfg.ContextLength = promptInt("Context length", orDefaultInt(cfg.ContextLength, 262144))
+	cfg.NumParallel = promptInt("Parallel requests (OLLAMA_NUM_PARALLEL)", orDefaultInt(cfg.NumParallel, 4))
 	cfg.IdleTimeout = promptInt("Idle timeout (seconds)", orDefaultInt(cfg.IdleTimeout, 300))
 
 	// ── Networking ───────────────────────

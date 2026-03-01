@@ -622,6 +622,7 @@ func newInfraConfig() *infra.InfraConfig {
 		MachineType:   cfg.MachineType,
 		DefaultModel:  cfg.DefaultModel,
 		ContextLength: cfg.ContextLength,
+		NumParallel:   cfg.NumParallel,
 		IdleTimeout:   cfg.IdleTimeout,
 		SubnetCIDR:    cfg.SubnetCIDR,
 		Subnet:        cfg.Subnet,

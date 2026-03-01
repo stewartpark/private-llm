@@ -161,8 +161,10 @@ rm -f /tmp/internal-token
 sudo mkdir -p /var/log/caddy
 sudo chown caddy:caddy /var/log/caddy
 
-# Fetch context length from metadata and update Ollama service environment
+# Fetch config from metadata and update Ollama service environment
 CONTEXT_LENGTH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/context-length)
+NUM_PARALLEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-parallel)
+NUM_PARALLEL=${NUM_PARALLEL:-4}
 sudo mkdir -p /etc/systemd/system/ollama.service.d
 sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<ENVEOF
 [Unit]
@@ -171,6 +173,7 @@ Requires=private-llm-bootstrap.service
 
 [Service]
 Environment="OLLAMA_CONTEXT_LENGTH=${CONTEXT_LENGTH}"
+Environment="OLLAMA_NUM_PARALLEL=${NUM_PARALLEL}"
 Environment="OLLAMA_KEEP_ALIVE=-1"
 Environment="OLLAMA_CUDA_GRAPHS=1"
 Environment="OLLAMA_NUM_THREADS=8"
