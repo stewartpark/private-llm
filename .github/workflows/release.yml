@@ -89,7 +89,7 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          IDENTITY="Developer ID Application: Stewart Park ($APPLE_TEAM_ID)"
+          IDENTITY="Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)"
 
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
@@ -123,7 +123,7 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           codesign --force --options runtime \
-            --sign "Developer ID Application: Stewart Park ($APPLE_TEAM_ID)" \
+            --sign "Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)" \
             --timestamp "bin/Private-LLM.dmg"
 
       - name: Notarize DMG
