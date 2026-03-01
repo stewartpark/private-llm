@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     name: Release CLI
+    if: github.repository == 'stewartpark/private-llm'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -35,6 +36,7 @@ jobs:
 
   mac-app:
     name: Release Mac App
+    if: github.repository == 'stewartpark/private-llm'
     runs-on: macos-latest
     timeout-minutes: 30
     needs: release
@@ -51,8 +53,57 @@ jobs:
       - name: Install create-dmg
         run: brew install create-dmg
 
+      - name: Import signing certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set +x
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12" 2>/dev/null
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$RUNNER_TEMP/cert.p12" \
+            -P "$P12_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          rm -f "$RUNNER_TEMP/cert.p12"
+
       - name: Build
         run: make build
+
+      - name: Sign binaries and app
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          IDENTITY="Developer ID Application: Stewart Park ($APPLE_TEAM_ID)"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Resources/private-llm"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app"
+
+          codesign -dvv "bin/Private LLM.app"
 
       - name: Create DMG
         run: |
@@ -67,7 +118,34 @@ jobs:
             "bin/Private-LLM.dmg" \
             "bin/Private LLM.app"
 
+      - name: Sign DMG
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          codesign --force --options runtime \
+            --sign "Developer ID Application: Stewart Park ($APPLE_TEAM_ID)" \
+            --timestamp "bin/Private-LLM.dmg"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ vars.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "bin/Private-LLM.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 20m
+
+          xcrun stapler staple "bin/Private-LLM.dmg"
+
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.ref_name }}" bin/Private-LLM.dmg
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
