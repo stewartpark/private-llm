@@ -68,6 +68,7 @@ func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult,
 		Metadata: pulumi.StringMap{
 			"caddyfile":               pulumi.String(cfg.Caddyfile),
 			"context-length":          pulumi.String(fmt.Sprintf("%d", cfg.ContextLength)),
+			"num-parallel":            pulumi.String(fmt.Sprintf("%d", cfg.NumParallel)),
 			"model":                   pulumi.String(cfg.DefaultModel),
 			"idle-timeout":            pulumi.String(fmt.Sprintf("%d", cfg.IdleTimeout)),
 			"enable-osconfig":         pulumi.String("TRUE"),
