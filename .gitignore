@@ -17,3 +17,5 @@ cli/cli
 Thumbs.db
 
 app/.build/
+
+.pulumi-cache/
