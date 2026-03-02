@@ -14,9 +14,13 @@ private-llm-server:8080 {
 	@bearer header Authorization "Bearer {{INTERNAL_TOKEN}}"
 
 	handle @bearer {
-		reverse_proxy localhost:11434 {
+		{{BACKEND_ROUTES}}
+		reverse_proxy {{UPSTREAMS}} {
+			header_up Host {upstream_hostport}
 			flush_interval -1
-			header_up Host localhost:11434
+			health_uri /api/tags
+			health_interval 5s
+			health_timeout 3s
 		}
 	}
 

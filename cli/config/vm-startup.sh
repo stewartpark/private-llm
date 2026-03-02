@@ -5,6 +5,7 @@
 set -e
 
 export DEBIAN_FRONTEND=noninteractive
+export HOME=/root
 INSTALL_DIR="/var/lib/private-llm"
 
 echo "========================================="
@@ -146,11 +147,55 @@ sudo chmod 600 /etc/caddy/certs/server.key
 sudo chmod 644 /etc/caddy/certs/server.crt
 sudo chmod 644 /etc/caddy/certs/ca.crt
 
-# Template Caddyfile with internal token
+# Fetch config from metadata
 INTERNAL_TOKEN=$(cat /tmp/internal-token)
+CONTEXT_LENGTH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/context-length)
+NUM_PARALLEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-parallel)
+NUM_PARALLEL=${NUM_PARALLEL:-1}
+NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
+NUM_INSTANCES=${NUM_INSTANCES:-2}
+
+# Auto-detect total GPU VRAM and split across instances
+TOTAL_VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
+if [ -n "$TOTAL_VRAM_MB" ] && [ "$NUM_INSTANCES" -gt 1 ]; then
+    VRAM_PER_INSTANCE_MB=$((TOTAL_VRAM_MB / NUM_INSTANCES))
+    VRAM_PER_INSTANCE_BYTES=$((VRAM_PER_INSTANCE_MB * 1048576))
+fi
+
+# Build upstream list for Caddy load balancing
+UPSTREAMS=""
+BASE_PORT=11434
+for i in $(seq 1 "$NUM_INSTANCES"); do
+    PORT=$((BASE_PORT + i - 1))
+    if [ -n "$UPSTREAMS" ]; then
+        UPSTREAMS="${UPSTREAMS} localhost:${PORT}"
+    else
+        UPSTREAMS="localhost:${PORT}"
+    fi
+done
+
+# Generate per-backend handle_path routes for deterministic path-based routing
+BACKEND_ROUTES=""
+if [ "$NUM_INSTANCES" -gt 1 ]; then
+    for i in $(seq 1 "$NUM_INSTANCES"); do
+        PORT=$((BASE_PORT + i - 1))
+        BACKEND_ROUTES="${BACKEND_ROUTES}
+    handle_path /backend/${i}/* {
+        reverse_proxy localhost:${PORT} {
+            header_up Host localhost:${PORT}
+            flush_interval -1
+        }
+    }"
+    done
+fi
+
+# Template Caddyfile with internal token, upstreams, and backend routes
 sudo mkdir -p /etc/caddy
+export BACKEND_ROUTES
 curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/caddyfile | \
     sed "s|{{INTERNAL_TOKEN}}|${INTERNAL_TOKEN}|g" | \
+    sed "s|{{UPSTREAMS}}|${UPSTREAMS}|g" | \
+    perl -pe 's/\Q{{BACKEND_ROUTES}}\E/$ENV{BACKEND_ROUTES}/g' | \
     sudo tee /etc/caddy/Caddyfile > /dev/null
 sudo chown caddy:caddy /etc/caddy/Caddyfile
 sudo chmod 644 /etc/caddy/Caddyfile
@@ -161,17 +206,26 @@ rm -f /tmp/internal-token
 sudo mkdir -p /var/log/caddy
 sudo chown caddy:caddy /var/log/caddy
 
-# Fetch config from metadata and update Ollama service environment
-CONTEXT_LENGTH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/context-length)
-NUM_PARALLEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-parallel)
-NUM_PARALLEL=${NUM_PARALLEL:-4}
-sudo mkdir -p /etc/systemd/system/ollama.service.d
-sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<ENVEOF
+# Disable stock ollama.service — we use numbered instances instead
+sudo systemctl disable ollama.service 2>/dev/null || true
+sudo systemctl stop ollama.service 2>/dev/null || true
+
+# Create ollama-{1..N}.service from stock ollama.service
+for i in $(seq 1 "$NUM_INSTANCES"); do
+    PORT=$((BASE_PORT + i - 1))
+    SVC="ollama-${i}"
+
+    sudo cp /etc/systemd/system/ollama.service "/etc/systemd/system/${SVC}.service" \
+        2>/dev/null || sudo cp /usr/lib/systemd/system/ollama.service "/etc/systemd/system/${SVC}.service"
+
+    sudo mkdir -p "/etc/systemd/system/${SVC}.service.d"
+    sudo tee "/etc/systemd/system/${SVC}.service.d/override.conf" > /dev/null <<ENVEOF
 [Unit]
 After=private-llm-bootstrap.service
 Requires=private-llm-bootstrap.service
 
 [Service]
+Environment="OLLAMA_HOST=127.0.0.1:${PORT}"
 Environment="OLLAMA_CONTEXT_LENGTH=${CONTEXT_LENGTH}"
 Environment="OLLAMA_NUM_PARALLEL=${NUM_PARALLEL}"
 Environment="OLLAMA_KEEP_ALIVE=-1"
@@ -179,6 +233,12 @@ Environment="OLLAMA_CUDA_GRAPHS=1"
 Environment="OLLAMA_NUM_THREADS=8"
 Environment="OLLAMA_NO_CLOUD=1"
 ENVEOF
+
+    if [ -n "$VRAM_PER_INSTANCE_BYTES" ]; then
+        echo "Environment=\"OLLAMA_MAX_VRAM=${VRAM_PER_INSTANCE_BYTES}\"" | \
+            sudo tee -a "/etc/systemd/system/${SVC}.service.d/override.conf" > /dev/null
+    fi
+done
 
 sudo systemctl daemon-reload
 EOF
@@ -189,7 +249,7 @@ EOF
     sudo tee /etc/systemd/system/private-llm-bootstrap.service > /dev/null <<'EOF'
 [Unit]
 Description=Private LLM Bootstrap (fetch secrets, template configs)
-Before=caddy.service ollama.service
+Before=caddy.service ollama-1.service ollama-2.service ollama-3.service ollama-4.service
 After=network-online.target
 Wants=network-online.target
 
@@ -457,38 +517,51 @@ if [ ! -f "$INSTALL_DIR/.step8-start-services" ]; then
     sudo systemctl start private-llm-bootstrap.service
     sudo systemctl daemon-reload
 
-    sudo systemctl enable ollama.service
-    sudo systemctl restart ollama.service
+    # Read instance count from metadata
+    NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" \
+        http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
+    NUM_INSTANCES=${NUM_INSTANCES:-1}
+
+    # Enable and start numbered Ollama instances
+    for i in $(seq 1 "$NUM_INSTANCES"); do
+        sudo systemctl enable "ollama-${i}.service"
+        sudo systemctl restart "ollama-${i}.service"
+    done
+
     sudo systemctl enable caddy.service
     sudo systemctl restart caddy.service
 
     sudo systemctl start integrity-monitor.timer
     sudo systemctl start idle-monitor.timer
 
-    # Wait for Ollama to be fully ready
-    echo "[STEP 8] Waiting for Ollama to be ready..."
-    MAX_RETRIES=60
-    RETRY_COUNT=0
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-            echo "[STEP 8] Ollama is ready"
-            break
+    # Wait for all Ollama instances to be ready
+    BASE_PORT=11434
+    for i in $(seq 1 "$NUM_INSTANCES"); do
+        PORT=$((BASE_PORT + i - 1))
+        echo "[STEP 8] Waiting for ollama-${i} (port ${PORT}) to be ready..."
+        MAX_RETRIES=60
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s "http://localhost:${PORT}/api/tags" >/dev/null 2>&1; then
+                echo "[STEP 8] ollama-${i} is ready"
+                break
+            fi
+            echo "[STEP 8] Waiting for ollama-${i}... attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+            sleep 2
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        done
+        if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "[STEP 8] WARNING: ollama-${i} did not become ready within expected time"
         fi
-        echo "[STEP 8] Waiting for Ollama... attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
-        sleep 2
-        RETRY_COUNT=$((RETRY_COUNT + 1))
     done
 
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo "[STEP 8] WARNING: Ollama did not become ready within expected time"
+    # Pull model (only needs to happen once — all instances share OLLAMA_MODELS dir)
+    MODEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
+    if [ -n "$MODEL" ]; then
+        echo "[STEP 8] Pulling default model: $MODEL"
+        (OLLAMA_HOST="127.0.0.1:${BASE_PORT}" ollama pull "$MODEL" && echo "[STEP 8] Model $MODEL pulled successfully") &
     else
-        MODEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
-        if [ -n "$MODEL" ]; then
-            echo "[STEP 8] Pulling default model: $MODEL"
-            (sudo -u ollama ollama pull "$MODEL" && echo "[STEP 8] Model $MODEL pulled successfully") &
-        else
-            echo "[STEP 8] No default model specified in metadata, skipping model pull"
-        fi
+        echo "[STEP 8] No default model specified in metadata, skipping model pull"
     fi
 
     touch "$INSTALL_DIR/.step8-start-services"
@@ -500,24 +573,32 @@ touch "$INSTALL_DIR/.installation-complete"
 
 # ============================================
 # Model Warming (runs in background on every boot)
+# Warms each Ollama instance so the model is loaded into VRAM
 # ============================================
 (
     MODEL=$(curl -s -H "Metadata-Flavor: Google" \
       http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
+    NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" \
+      http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
+    NUM_INSTANCES=${NUM_INSTANCES:-1}
 
     if [ -n "$MODEL" ]; then
-        MAX_RETRIES=30
-        RETRY_COUNT=0
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-                curl -s -X POST http://localhost:11434/api/generate \
-                    -H "Content-Type: application/json" \
-                    -d "{\"model\": \"$MODEL\", \"prompt\": \"hi\", \"stream\": false, \"options\": {\"num_predict\": 1}}" \
-                    >/dev/null 2>&1
-                break
-            fi
-            sleep 5
-            RETRY_COUNT=$((RETRY_COUNT + 1))
+        BASE_PORT=11434
+        for i in $(seq 1 "$NUM_INSTANCES"); do
+            PORT=$((BASE_PORT + i - 1))
+            MAX_RETRIES=30
+            RETRY_COUNT=0
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+                if curl -s "http://localhost:${PORT}/api/tags" >/dev/null 2>&1; then
+                    curl -s -X POST "http://localhost:${PORT}/api/generate" \
+                        -H "Content-Type: application/json" \
+                        -d "{\"model\": \"$MODEL\", \"prompt\": \"hi\", \"stream\": false, \"options\": {\"num_predict\": 1}}" \
+                        >/dev/null 2>&1
+                    break
+                fi
+                sleep 5
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+            done
         done
     fi
 ) &

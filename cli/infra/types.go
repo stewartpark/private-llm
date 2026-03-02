@@ -21,6 +21,7 @@ type InfraConfig struct {
 	IdleTimeout   int
 	SubnetCIDR    string
 	Subnet        string
+	NumInstances  int
 	DisableHSM    bool
 	// Embedded content for VM metadata
 	StartupScript string
