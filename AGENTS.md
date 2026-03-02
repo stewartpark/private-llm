@@ -145,6 +145,51 @@ Ops Loop (single goroutine):
 
 ---
 
+### 6b. Prompt Cache-Aware Backend Affinity
+
+**Decision**: Proxy-side session→backend pinning so multi-instance Ollama preserves KV cache across requests in the same conversation.
+
+**Why**:
+- With `OLLAMA_NUM_PARALLEL=1` (required by large models like Qwen 3.5), each instance has one KV cache slot
+- `least_conn` LB breaks ties randomly when both instances are idle → ~50% cache miss rate
+- KV cache miss on a 30K-token conversation = +10s TTFT; 100K = +33s
+- Sticky sessions keep the same conversation on the same backend, preserving KV cache
+
+**Implementation** (`affinity.go`):
+
+*Session Fingerprinting:*
+- Hash the first 3 messages of the conversation (FNV-1a on role+content)
+- First 3 messages (system + first user + first assistant) uniquely identify a conversation — even two instances of the same tool diverge after the first user message
+- Conversations with < 3 messages: fingerprint = 0 → no affinity (prefill cost negligible for short contexts)
+- Extraction: `messages[]` from `/v1/chat/completions` and `/api/chat`; `/api/generate` has no messages array → always no affinity
+
+*Backend Assignment (`backendAssigner`):*
+- LRU map of fingerprint → backend (1-based), capacity = 2× numInstances
+- Sticky: known session → same backend (LRU touch)
+- New session: assigned to backend with fewest assigned sessions
+- Eviction: oldest session evicted when at capacity, its backend's count decremented
+- `num_instances=1`: short-circuit returns 1 (no locking)
+
+*Proxy Integration (`proxy.go`):*
+- `backend := assigner.Backend(reqBody)` — single call after body buffering
+- Sets `X-Preferred-Backend: <N>` header on proxied request
+- Caddy `lb_policy header X-Preferred-Backend` hashes the value to select upstream deterministically
+
+**Known trade-off**: A short prompt (< 3 messages, no affinity) routes to least-assigned backend. If both backends have a big session, one loses its cache. Acceptable because: short requests prefill cheaply, and the big session's sticky assignment brings it right back on the next request.
+
+**Behavior Matrix**:
+
+| Scenario | Routing | KV cache |
+|---|---|---|
+| Short conversation (< 3 msgs) | Least-assigned (no affinity) | No preference — prefill cheap |
+| 1 session, sequential | All → assigned backend | Preserved |
+| 2 sessions | Each → different backend | Both preserved |
+| 2 identical-tool sessions | Different fingerprints (diverge at 1st user msg) | Both preserved |
+| N sessions > N instances | Shared backends, cache thrashes on shared ones | Best effort |
+| `num_instances=1` | All → backend 1 | Always preserved |
+
+---
+
 ### 7. macOS App: System Menu Bar + Terminal Wrapper
 
 **Decision**: Native Swift app (Cocoa + SwiftTerm) wrapping Go CLI.
@@ -252,6 +297,7 @@ journalctl -u private-llm -f
 | `firewall.go` | Dynamic firewall rule (IP-locked, deleted on shutdown) |
 | `config.go` | JSON config loading/saving, default values, interactive prompts |
 | `tokens.go` | Streaming token parser (Ollama, OpenAI, Anthropic, Responses) |
+| `affinity.go` | Session→backend pinning for KV cache preservation (multi-instance) |
 | `setup.go` | Interactive setup UI with arrow-key navigation |
 
 ### Infrastructure (`cli/infra/`)
