@@ -21,6 +21,7 @@ var (
 	proxyReady      atomic.Bool
 	lastRequestTime time.Time
 	lastRequestMu   sync.RWMutex
+	assigner        *backendAssigner // initialized in serve with cfg.NumInstances
 )
 
 // Resettable channel gate: closed channel = gate open (requests pass),
@@ -118,16 +119,17 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endpoint := fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
-	if r.URL.RawQuery != "" {
-		endpoint += "?" + r.URL.RawQuery
-	}
-
 	client := &http.Client{
 		Timeout: 10 * time.Minute,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsCfg,
 		},
+	}
+
+	// Fan-out /api/ps across all backends and merge results.
+	if r.URL.Path == "/api/ps" && assigner.numInstances > 1 {
+		fanOutPS(ctx, w, client, ip, internalToken)
+		return
 	}
 
 	// Buffer request body so we can peek at "model" and replay on retries.
@@ -145,6 +147,21 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(reqBody, &peek) == nil && peek.Model != "" {
 			modelName = peek.Model
 		}
+	}
+
+	// Session-aware backend selection for KV cache affinity
+	backend := assigner.Acquire(reqBody)
+	defer assigner.Release(backend)
+
+	// Path-based routing: /backend/N prefix for multi-instance, direct for single
+	var endpoint string
+	if assigner.numInstances > 1 {
+		endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
+	} else {
+		endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
+	}
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
 	}
 
 	// Retry loop for 502s (Caddy up, Ollama not ready) and connection errors.
@@ -183,7 +200,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				// Re-read state after recovery
 				ip = getCachedVMIP()
-				endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
+				if assigner.numInstances > 1 {
+					endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
+				} else {
+					endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
+				}
 				if r.URL.RawQuery != "" {
 					endpoint += "?" + r.URL.RawQuery
 				}
@@ -315,4 +336,62 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			OutputTokPerSec: finalRate,
 		})
 	}
+}
+
+// fanOutPS queries /api/ps on all backends concurrently and merges the results.
+func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, ip, token string) {
+	type psResponse struct {
+		Models []json.RawMessage `json:"models"`
+	}
+
+	type result struct {
+		models []json.RawMessage
+		err    error
+	}
+
+	n := assigner.numInstances
+	results := make([]result, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+
+	for i := range n {
+		go func(backend int) {
+			defer wg.Done()
+			endpoint := fmt.Sprintf("https://%s:8080/backend/%d/api/ps", ip, backend+1)
+			req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+			if err != nil {
+				results[backend].err = err
+				return
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Host = "private-llm-server"
+
+			resp, err := client.Do(req)
+			if err != nil {
+				results[backend].err = err
+				return
+			}
+			defer resp.Body.Close()
+
+			var ps psResponse
+			if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
+				results[backend].err = err
+				return
+			}
+			results[backend].models = ps.Models
+		}(i)
+	}
+	wg.Wait()
+
+	var merged []json.RawMessage
+	for i, r := range results {
+		if r.err != nil {
+			log.Printf("[proxy] /api/ps fan-out backend %d failed: %v", i+1, r.err)
+			continue
+		}
+		merged = append(merged, r.models...)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(psResponse{Models: merged}) //nolint:errcheck
 }

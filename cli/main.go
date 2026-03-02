@@ -185,6 +185,9 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 		ContextLength: cfg.ContextLength,
 	})
 
+	// Initialize backend assigner for KV cache affinity
+	assigner = newBackendAssigner(cfg.NumInstances)
+
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", proxyHandler)
@@ -627,6 +630,7 @@ func newInfraConfig() *infra.InfraConfig {
 		SubnetCIDR:    cfg.SubnetCIDR,
 		Subnet:        cfg.Subnet,
 		DisableHSM:    cfg.DisableHSM,
+		NumInstances:  cfg.NumInstances,
 		StartupScript: vmStartupScript,
 		Caddyfile:     caddyfileContent,
 	}
