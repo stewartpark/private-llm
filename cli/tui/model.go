@@ -94,10 +94,9 @@ type (
 		Steps   []string
 		Current int
 	}
-	doneMsg          struct{ Err error }
-	logMsg           struct{ Lines []string } // Batched log lines
-	batchFlushLogMsg struct{}                 // Ping to flush batch buffer
-	tickMsg          time.Time
+	doneMsg struct{ Err error }
+	logMsg  struct{ Lines []string } // Batched log lines
+	tickMsg time.Time
 )
 
 func tickEvery(d time.Duration) tea.Cmd {
@@ -404,14 +403,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logMsg:
 		// Buffer incoming log lines for batch processing
 		m.LogBatch = append(m.LogBatch, msg.Lines...)
-		// Flush immediately if we have enough lines or enough time has passed
-		if len(m.LogBatch) >= 10 || time.Since(m.LastLogFlush) >= logFlushInterval {
+		if len(m.LogBatch) >= 10 {
 			m.flushLogBatch()
 		}
-
-	case batchFlushLogMsg:
-		// Periodic flush to ensure all buffered logs are displayed
-		m.flushLogBatch()
 	}
 
 	return m, nil
