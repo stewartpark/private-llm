@@ -35,6 +35,8 @@ func (s *CompletionState) ResetForContinuation() {
 }
 
 // FeedOllama updates state from Ollama format (JSON lines).
+// Ollama models emit thinking as <think>...</think> tags within the content field,
+// so we track open/close tags to detect when the stream ends mid-thinking.
 func (s *CompletionState) FeedOllama(line string) {
 	var obj struct {
 		Done     bool   `json:"done"`
@@ -65,8 +67,21 @@ func (s *CompletionState) FeedOllama(line string) {
 	}
 	if content != "" {
 		s.accumulatedContent.WriteString(content)
-		s.lastContentType = contentTypeText
+		// Detect Ollama thinking state from <think> tags in accumulated content
+		s.lastContentType = s.ollamaContentType()
 	}
+}
+
+// ollamaContentType checks the accumulated content for unclosed <think> tags.
+// Returns contentTypeThinking if inside a thinking block, contentTypeText otherwise.
+func (s *CompletionState) ollamaContentType() string {
+	content := s.accumulatedContent.String()
+	lastOpen := strings.LastIndex(content, "<think>")
+	lastClose := strings.LastIndex(content, "</think>")
+	if lastOpen > lastClose {
+		return contentTypeThinking
+	}
+	return contentTypeText
 }
 
 // FeedOpenAIChat updates state from OpenAI Chat format (SSE).
