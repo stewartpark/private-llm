@@ -244,4 +244,3 @@ func StateDir() (string, error) {
 	}
 	return filepath.Join(home, ".config", "private-llm", "state"), nil
 }
-

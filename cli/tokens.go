@@ -189,8 +189,8 @@ func (p *tokenParser) parseOllamaLine(line string) {
 	}
 
 	if obj.Done {
-		// Final line: grab input token count
-		if obj.PromptEvalCount > 0 {
+		// Final line: grab input token count (only first done line — continuations send more)
+		if obj.PromptEvalCount > 0 && p.input == 0 {
 			p.input = obj.PromptEvalCount
 			totalInputTokens.Add(obj.PromptEvalCount)
 		}
