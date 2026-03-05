@@ -37,10 +37,10 @@ func (s *CompletionState) ResetForContinuation() {
 // FeedOllama updates state from Ollama format (JSON lines).
 func (s *CompletionState) FeedOllama(line string) {
 	var obj struct {
-		Done     bool                      `json:"done"`
-		Response string                    `json:"response"`
+		Done     bool   `json:"done"`
+		Response string `json:"response"`
 		Message  *struct {
-			Content   string `json:"content"`
+			Content   string            `json:"content"`
 			ToolCalls []json.RawMessage `json:"tool_calls"`
 		} `json:"message"`
 	}
@@ -171,9 +171,9 @@ func (s *CompletionState) FeedOpenAIResponses(line string, event string) {
 }
 
 // IsPremature checks if this completion ended prematurely.
-// Simple rule: last content was a tool call or thinking block.
+// Only thinking blocks are premature — tool calls and text are valid terminal states.
 func (s *CompletionState) IsPremature() bool {
-	return s.lastContentType == contentTypeToolCall || s.lastContentType == contentTypeThinking
+	return s.lastContentType == contentTypeThinking
 }
 
 // GetOutput returns the accumulated text output so far.
@@ -185,7 +185,7 @@ func (s *CompletionState) GetOutput() string {
 func (s *CompletionState) FeedOllamaComplete(body []byte) {
 	var obj struct {
 		Message *struct {
-			Content   string           `json:"content"`
+			Content   string            `json:"content"`
 			ToolCalls []json.RawMessage `json:"tool_calls"`
 		} `json:"message"`
 		Response string `json:"response"`
@@ -234,8 +234,8 @@ func (s *CompletionState) FeedOpenAIChatComplete(body []byte) {
 func (s *CompletionState) FeedAnthropicComplete(body []byte) {
 	var obj struct {
 		Content []struct {
-			Type    string `json:"type"`
-			Text    string `json:"text"`
+			Type string `json:"type"`
+			Text string `json:"text"`
 		} `json:"content"`
 	}
 	if json.Unmarshal(body, &obj) != nil {
