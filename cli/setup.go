@@ -269,7 +269,7 @@ func promptSelect(label string, options []string, defaultIdx int) string {
 			// Collapse list into single result line
 			_ = term.Restore(fd, oldState)
 			fmt.Printf("\x1b[%dA", totalLines+1) // move up past list + label
-			fmt.Print("\x1b[J")                   // clear to end of screen
+			fmt.Print("\x1b[J")                  // clear to end of screen
 			fmt.Printf("  %s: %s\n", label, act.Render(options[selected]))
 			return options[selected]
 
@@ -400,8 +400,15 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.Zone = promptSelect("Zone", zones, findOption(zones, zoneDefault, 0))
 
 	cfg.VMName = promptString("VM name", orDefault(cfg.VMName, "private-llm-vm"))
-	cfg.DefaultModel = promptString("Default model", orDefault(cfg.DefaultModel, "stewartpark/qwen3.5"))
+	cfg.DefaultModel = promptString("Default (target) model", orDefault(cfg.DefaultModel, "stewartpark/qwen3.5"))
+
 	cfg.ContextLength = promptInt("Context length", orDefaultInt(cfg.ContextLength, 262144))
+
+	kvCacheOptions := []string{"q8_0", "q4_0", "f16"}
+	kvDefault := findOption(kvCacheOptions, orDefault(cfg.KvCacheType, "q8_0"), 0)
+	cfg.KvCacheType = promptSelect("KV cache type", kvCacheOptions, kvDefault)
+
+	cfg.NumBatch = promptInt("Batch size (OLLAMA_NUM_BATCH)", orDefaultInt(cfg.NumBatch, 1024))
 	cfg.NumInstances = promptInt("Ollama instances (1-4, for concurrency)", orDefaultInt(cfg.NumInstances, 2))
 	cfg.NumInstances = max(1, min(4, cfg.NumInstances))
 	cfg.NumParallel = promptInt("Parallel requests (OLLAMA_NUM_PARALLEL)", orDefaultInt(cfg.NumParallel, 1))

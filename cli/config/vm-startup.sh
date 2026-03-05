@@ -154,6 +154,8 @@ NUM_PARALLEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.inter
 NUM_PARALLEL=${NUM_PARALLEL:-1}
 NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
 NUM_INSTANCES=${NUM_INSTANCES:-2}
+KV_CACHE_TYPE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kv-cache-type)
+NUM_BATCH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-batch)
 
 # Auto-detect total GPU VRAM and split across instances
 TOTAL_VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
@@ -232,6 +234,8 @@ Environment="OLLAMA_KEEP_ALIVE=-1"
 Environment="OLLAMA_CUDA_GRAPHS=1"
 Environment="OLLAMA_NUM_THREADS=8"
 Environment="OLLAMA_NO_CLOUD=1"
+Environment="OLLAMA_KV_CACHE_TYPE=${KV_CACHE_TYPE}"
+Environment="OLLAMA_NUM_BATCH=${NUM_BATCH}"
 ENVEOF
 
     if [ -n "$VRAM_PER_INSTANCE_BYTES" ]; then
@@ -555,13 +559,13 @@ if [ ! -f "$INSTALL_DIR/.step8-start-services" ]; then
         fi
     done
 
-    # Pull model (only needs to happen once — all instances share OLLAMA_MODELS dir)
+    # Pull target model (only needs to happen once — all instances share OLLAMA_MODELS dir)
     MODEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
     if [ -n "$MODEL" ]; then
-        echo "[STEP 8] Pulling default model: $MODEL"
-        (OLLAMA_HOST="127.0.0.1:${BASE_PORT}" ollama pull "$MODEL" && echo "[STEP 8] Model $MODEL pulled successfully") &
+        echo "[STEP 8] Pulling target model: $MODEL"
+        (OLLAMA_HOST="127.0.0.1:${BASE_PORT}" ollama pull "$MODEL" && echo "[STEP 8] Target model $MODEL pulled successfully") &
     else
-        echo "[STEP 8] No default model specified in metadata, skipping model pull"
+        echo "[STEP 8] No target model specified in metadata, skipping model pull"
     fi
 
     touch "$INSTALL_DIR/.step8-start-services"
@@ -582,8 +586,10 @@ touch "$INSTALL_DIR/.installation-complete"
       http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
     NUM_INSTANCES=${NUM_INSTANCES:-1}
 
+    BASE_PORT=11434
+
+    # Warm target model on each instance (keeps in VRAM with keep_alive=-1)
     if [ -n "$MODEL" ]; then
-        BASE_PORT=11434
         for i in $(seq 1 "$NUM_INSTANCES"); do
             PORT=$((BASE_PORT + i - 1))
             MAX_RETRIES=30
@@ -593,7 +599,7 @@ touch "$INSTALL_DIR/.installation-complete"
                     curl -s -X POST "http://localhost:${PORT}/api/generate" \
                         -H "Content-Type: application/json" \
                         -d "{\"model\": \"$MODEL\", \"prompt\": \"hi\", \"stream\": false, \"options\": {\"num_predict\": 1}}" \
-                        >/dev/null 2>&1
+                        >/dev/null 2>&1 || true
                     break
                 fi
                 sleep 5

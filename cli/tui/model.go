@@ -44,17 +44,17 @@ type RequestEvent struct {
 
 // StatusUpdate carries polled status data into the model.
 type StatusUpdate struct {
-	VMStatus      string
-	ExternalIP    string
-	Firewall      bool
-	SourceIP      string
-	CertCreated   time.Time
-	TokenCreated  time.Time
-	IdleTime      time.Duration
-	IdleTimeout   time.Duration
-	InputTokens   int64
-	OutputTokens  int64
-	Error         error
+	VMStatus     string
+	ExternalIP   string
+	Firewall     bool
+	SourceIP     string
+	CertCreated  time.Time
+	TokenCreated time.Time
+	IdleTime     time.Duration
+	IdleTimeout  time.Duration
+	InputTokens  int64
+	OutputTokens int64
+	Error        error
 }
 
 // ConfigMsg sets static display configuration.
@@ -65,7 +65,7 @@ type ConfigMsg struct {
 	MachineType   string // e.g. "g4-standard-48"
 	Zone          string // e.g. "us-central1-a"
 	ModelName     string // e.g. "stewartpark/qwen3.5"
-	ContextLength int    // e.g. 262144
+	ContextLength int // e.g. 262144
 }
 
 // ActionStartMsg signals the TUI that a long-running action has begun.
@@ -116,9 +116,9 @@ type StatusData struct {
 	CertAge      time.Duration
 	CertAgeColor string
 
-	TokenCreated  time.Time
-	TokenAge      time.Duration
-	TokenAgeColor string
+	TokenCreated     time.Time
+	TokenAge         time.Duration
+	TokenAgeColor    string
 	CAKeyLocation    string
 	EncryptionActive bool
 
@@ -155,8 +155,8 @@ type Model struct {
 	MaxRequestLog int
 
 	// Log lines captured from log.Printf
-	LogLines       []string
-	MaxLogLines    int
+	LogLines        []string
+	MaxLogLines     int
 	LogScrollOffset int // 0 = bottom (newest), positive = scrolled up
 
 	// Timing

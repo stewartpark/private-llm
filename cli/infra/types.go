@@ -17,6 +17,8 @@ type InfraConfig struct {
 	MachineType   string
 	DefaultModel  string
 	ContextLength int
+	KvCacheType   string
+	NumBatch      int
 	NumParallel   int
 	IdleTimeout   int
 	SubnetCIDR    string
@@ -42,7 +44,7 @@ type KMSResult struct {
 
 // SecretsResult holds provisioned secret resources.
 type SecretsResult struct {
-	CACert   *secretmanager.Secret
+	CACert     *secretmanager.Secret
 	ServerCert *secretmanager.Secret
 	ServerKey  *secretmanager.Secret
 	Token      *secretmanager.Secret

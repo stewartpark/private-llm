@@ -30,11 +30,11 @@ func supportsHyperdisk(machineType string) bool {
 
 func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult, vmSA *serviceaccount.Account, opts ...pulumi.ResourceOption) error {
 	_, err := compute.NewInstance(ctx, "vm", &compute.InstanceArgs{
-		Name:                    pulumi.String(cfg.VMName),
-		MachineType:             pulumi.String(cfg.MachineType),
-		Zone:                    pulumi.String(cfg.Zone),
-		Project:                 pulumi.String(cfg.ProjectID),
-		AllowStoppingForUpdate:  pulumi.Bool(true),
+		Name:                   pulumi.String(cfg.VMName),
+		MachineType:            pulumi.String(cfg.MachineType),
+		Zone:                   pulumi.String(cfg.Zone),
+		Project:                pulumi.String(cfg.ProjectID),
+		AllowStoppingForUpdate: pulumi.Bool(true),
 		Scheduling: &compute.InstanceSchedulingArgs{
 			ProvisioningModel:         pulumi.String("SPOT"),
 			Preemptible:               pulumi.Bool(true),
@@ -44,8 +44,8 @@ func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult,
 		},
 		BootDisk: bootDiskArgs(cfg.MachineType),
 		ShieldedInstanceConfig: &compute.InstanceShieldedInstanceConfigArgs{
-			EnableSecureBoot:         pulumi.Bool(true),
-			EnableVtpm:               pulumi.Bool(true),
+			EnableSecureBoot:          pulumi.Bool(true),
+			EnableVtpm:                pulumi.Bool(true),
 			EnableIntegrityMonitoring: pulumi.Bool(true),
 		},
 		NetworkInterfaces: compute.InstanceNetworkInterfaceArray{
@@ -71,6 +71,8 @@ func provisionCompute(ctx *pulumi.Context, cfg *InfraConfig, net *NetworkResult,
 			"num-parallel":            pulumi.String(fmt.Sprintf("%d", cfg.NumParallel)),
 			"model":                   pulumi.String(cfg.DefaultModel),
 			"idle-timeout":            pulumi.String(fmt.Sprintf("%d", cfg.IdleTimeout)),
+			"kv-cache-type":           pulumi.String(cfg.KvCacheType),
+			"num-batch":               pulumi.String(fmt.Sprintf("%d", cfg.NumBatch)),
 			"num-instances":           pulumi.String(fmt.Sprintf("%d", cfg.NumInstances)),
 			"enable-osconfig":         pulumi.String("TRUE"),
 			"enable-guest-attributes": pulumi.String("TRUE"),
