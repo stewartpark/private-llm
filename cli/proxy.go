@@ -141,9 +141,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
 			return
 		}
-		var peek struct {
-			Model string `json:"model"`
-		}
+		var peek chatRequest
 		if json.Unmarshal(reqBody, &peek) == nil && peek.Model != "" {
 			modelName = peek.Model
 		}

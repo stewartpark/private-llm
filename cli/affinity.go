@@ -137,10 +137,7 @@ func (a *backendAssigner) evictOldest() {
 // Returns 0 for short conversations (< 3 messages) where prefill cost is negligible.
 func sessionFingerprint(body []byte) uint64 {
 	var peek struct {
-		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
+		Messages []chatMessage `json:"messages"`
 	}
 	if json.Unmarshal(body, &peek) != nil {
 		return 0
@@ -153,7 +150,7 @@ func sessionFingerprint(body []byte) uint64 {
 	h := fnv.New64a()
 	for i := range 3 {
 		h.Write([]byte(peek.Messages[i].Role))
-		h.Write([]byte(peek.Messages[i].Content))
+		h.Write(peek.Messages[i].Content)
 	}
 	return h.Sum64()
 }

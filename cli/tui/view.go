@@ -121,7 +121,8 @@ func renderDashboard(m Model) string {
 	modelLine := ""
 	if m.ModelName != "" {
 		ctxStr := formatContextLength(m.ContextLength)
-		modelLine = kv("Model", m.ModelName+" ("+ctxStr+")", colorWhite)
+		modelDisplay := m.ModelName + " (" + ctxStr + ")"
+		modelLine = kv("Model", modelDisplay, colorWhite)
 	}
 
 	// Token stats line for info panel
@@ -147,9 +148,9 @@ func renderDashboard(m Model) string {
 		}
 		inPart := inDot + lipgloss.NewStyle().Foreground(colorGray).Render(" In ") + inValStyle.Render(inTok)
 		if m.CurrentInputTokPerSec > 0 {
-			inPart += lipgloss.NewStyle().Foreground(colorDim).Render("  "+formatRate(m.CurrentInputTokPerSec)+" t/s")
+			inPart += lipgloss.NewStyle().Foreground(colorDim).Render("  " + formatRate(m.CurrentInputTokPerSec) + " t/s")
 			if m.MaxInputTokPerSec > 0 {
-				inPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak "+formatRate(m.MaxInputTokPerSec)+" t/s)")
+				inPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak " + formatRate(m.MaxInputTokPerSec) + " t/s)")
 			}
 		}
 
@@ -166,12 +167,12 @@ func renderDashboard(m Model) string {
 		outPart := outDot + lipgloss.NewStyle().Foreground(colorGray).Render(" Out ") + outValStyle.Render(outTok)
 		if m.CurrentOutputTokPerSec > 0 {
 			if m.IsStreaming {
-				outPart += lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("  ⚡ "+formatRate(m.CurrentOutputTokPerSec)+" t/s")
+				outPart += lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("  ⚡ " + formatRate(m.CurrentOutputTokPerSec) + " t/s")
 			} else {
-				outPart += lipgloss.NewStyle().Foreground(colorDim).Render("  "+formatRate(m.CurrentOutputTokPerSec)+" t/s")
+				outPart += lipgloss.NewStyle().Foreground(colorDim).Render("  " + formatRate(m.CurrentOutputTokPerSec) + " t/s")
 			}
 			if m.MaxOutputTokPerSec > 0 {
-				outPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak "+formatRate(m.MaxOutputTokPerSec)+" t/s)")
+				outPart += lipgloss.NewStyle().Foreground(colorDim).Render(" (peak " + formatRate(m.MaxOutputTokPerSec) + " t/s)")
 			}
 		}
 

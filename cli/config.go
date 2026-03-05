@@ -23,6 +23,8 @@ type Config struct {
 	MachineType   string `json:"machine_type"`
 	DefaultModel  string `json:"default_model"`
 	ContextLength int    `json:"context_length"`
+	KvCacheType   string `json:"kv_cache_type"`
+	NumBatch      int    `json:"num_batch"`
 	NumInstances  int    `json:"num_instances"`
 	NumParallel   int    `json:"num_parallel"`
 	IdleTimeout   int    `json:"idle_timeout"`
@@ -132,6 +134,12 @@ func applyDefaults() {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1"
 	}
+	if cfg.KvCacheType == "" {
+		cfg.KvCacheType = "q8_0"
+	}
+	if cfg.NumBatch == 0 {
+		cfg.NumBatch = 1024
+	}
 }
 
 // inferProjectID gets the GCP project ID from Application Default Credentials.
@@ -236,3 +244,4 @@ func StateDir() (string, error) {
 	}
 	return filepath.Join(home, ".config", "private-llm", "state"), nil
 }
+

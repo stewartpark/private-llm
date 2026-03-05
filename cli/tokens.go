@@ -44,6 +44,22 @@ func detectAPIStyle(path string) apiStyle {
 	}
 }
 
+// chatMessage is the common message structure shared across Ollama and OpenAI-compatible APIs.
+type chatMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+// chatRequest is the shared request body structure for generation endpoints.
+// Covers fields common to Ollama (/api/generate, /api/chat) and OpenAI-compatible APIs.
+type chatRequest struct {
+	Model    string            `json:"model"`
+	Prompt   string            `json:"prompt,omitempty"`
+	Messages []chatMessage     `json:"messages,omitempty"`
+	Stream   *bool             `json:"stream,omitempty"`
+	Options  map[string]any    `json:"options,omitempty"`
+}
+
 // tokenParser parses streaming response data to count tokens in real time.
 // It buffers partial lines and processes complete ones.
 type tokenParser struct {
