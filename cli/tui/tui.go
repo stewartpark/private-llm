@@ -124,11 +124,32 @@ func (p *Program) LogWriter() *LogWriter {
 
 // LogWriter captures log output, batches it, and sends to the TUI.
 type LogWriter struct {
-	program  *tea.Program
-	buffer   []string
-	closed   bool
-	mu       sync.Mutex
-	hasFlush bool // Whether periodic flush is set up
+	program *tea.Program
+	buffer  []string
+	closed  bool
+	mu      sync.Mutex
+	once    sync.Once
+}
+
+func (w *LogWriter) startFlusher() {
+	w.once.Do(func() {
+		go func() {
+			ticker := time.NewTicker(logFlushInterval)
+			defer ticker.Stop()
+			for range ticker.C {
+				w.mu.Lock()
+				if w.closed || len(w.buffer) == 0 {
+					w.mu.Unlock()
+					continue
+				}
+				lines := make([]string, len(w.buffer))
+				copy(lines, w.buffer)
+				w.buffer = w.buffer[:0]
+				w.mu.Unlock()
+				w.program.Send(logMsg{Lines: lines})
+			}
+		}()
+	})
 }
 
 func (w *LogWriter) Write(p []byte) (int, error) {
@@ -140,33 +161,9 @@ func (w *LogWriter) Write(p []byte) (int, error) {
 	line := strings.TrimRight(string(p), "\n")
 	if line != "" {
 		w.buffer = append(w.buffer, line)
-		// Flush immediately if batch is large enough
-		if len(w.buffer) >= 10 {
-			w.doFlushLocked()
-		}
+		w.startFlusher()
 	}
 	return len(p), nil
-}
-
-func (w *LogWriter) doFlushLocked() {
-	if len(w.buffer) == 0 {
-		return
-	}
-	w.program.Send(logMsg{Lines: w.buffer})
-	w.buffer = w.buffer[:0] // Keep capacity
-	// Set up periodic flush if not already done
-	if !w.hasFlush {
-		w.hasFlush = true
-		// Schedule next flush 50ms from now
-		go func() {
-			time.Sleep(logFlushInterval)
-			w.mu.Lock()
-			defer w.mu.Unlock()
-			if !w.closed {
-				w.program.Send(batchFlushLogMsg{})
-			}
-		}()
-	}
 }
 
 // Close stops forwarding and flushes any remaining buffered logs.
