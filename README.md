@@ -224,7 +224,7 @@ private-llm rotate-mtls-ca        # Emergency: rotate all certs
 
 **TUI Controls:** `q` quit | `r` restart | `R` reset (recreate) | `S` toggle VM
 
-**Config:** `~/.config/private-llm/agent.json` (auto-created, editable via `up`)
+**Config:** `~/.config/private-llm/agent.json` (see [`CONFIG.md`](CONFIG.md) for all options)
 
 **Docs:** [`AGENTS.md`](AGENTS.md) — architecture & design | [`SECURITY.md`](SECURITY.md) — threat model & controls | Linux packaging
 
