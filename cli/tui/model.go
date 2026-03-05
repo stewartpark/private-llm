@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -65,7 +66,7 @@ type ConfigMsg struct {
 	MachineType   string // e.g. "g4-standard-48"
 	Zone          string // e.g. "us-central1-a"
 	ModelName     string // e.g. "stewartpark/qwen3.5"
-	ContextLength int // e.g. 262144
+	ContextLength int    // e.g. 262144
 }
 
 // ActionStartMsg signals the TUI that a long-running action has begun.
@@ -79,6 +80,12 @@ type StreamingRate struct {
 	OutputTokPerSec float64
 }
 
+// PrematureCompletionEvent signals that premature completion was detected and retry occurred.
+type PrematureCompletionEvent struct {
+	RetryCount  int
+	Description string
+}
+
 // Internal message types for BubbleTea update loop.
 type (
 	viewChangeMsg   struct{ View ViewType }
@@ -87,9 +94,10 @@ type (
 		Steps   []string
 		Current int
 	}
-	doneMsg struct{ Err error }
-	logMsg  struct{ Line string }
-	tickMsg time.Time
+	doneMsg          struct{ Err error }
+	logMsg           struct{ Lines []string } // Batched log lines
+	batchFlushLogMsg struct{}                 // Ping to flush batch buffer
+	tickMsg          time.Time
 )
 
 func tickEvery(d time.Duration) tea.Cmd {
@@ -157,7 +165,9 @@ type Model struct {
 	// Log lines captured from log.Printf
 	LogLines        []string
 	MaxLogLines     int
-	LogScrollOffset int // 0 = bottom (newest), positive = scrolled up
+	LogScrollOffset int       // 0 = bottom (newest), positive = scrolled up
+	LogBatch        []string  // Buffer for batching rapid log messages
+	LastLogFlush    time.Time // Last batch flush time
 
 	// Timing
 	StartTime time.Time
@@ -214,6 +224,7 @@ func NewModel(actionCh chan Action) Model {
 		MaxRequestLog: 10,
 		LogLines:      make([]string, 0),
 		MaxLogLines:   100,
+		LogBatch:      make([]string, 0),
 		StartTime:     time.Now(),
 	}
 }
@@ -385,11 +396,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RequestEvent:
 		m.handleRequestEvent(msg)
 
+	case PrematureCompletionEvent:
+		// Add notification to log lines that premature completion was detected
+		logLine := fmt.Sprintf("[preempt] Continuation #%d: %s", msg.RetryCount, msg.Description)
+		m.LogBatch = append(m.LogBatch, logLine)
+
 	case logMsg:
-		m.LogLines = append(m.LogLines, msg.Line)
-		if len(m.LogLines) > m.MaxLogLines {
-			m.LogLines = m.LogLines[len(m.LogLines)-m.MaxLogLines:]
+		// Buffer incoming log lines for batch processing
+		m.LogBatch = append(m.LogBatch, msg.Lines...)
+		// Flush immediately if we have enough lines or enough time has passed
+		if len(m.LogBatch) >= 10 || time.Since(m.LastLogFlush) >= logFlushInterval {
+			m.flushLogBatch()
 		}
+
+	case batchFlushLogMsg:
+		// Periodic flush to ensure all buffered logs are displayed
+		m.flushLogBatch()
 	}
 
 	return m, nil
@@ -533,6 +555,18 @@ func (m *Model) handleRequestEvent(e RequestEvent) {
 			m.MaxOutputTokPerSec = e.OutputTokPerSec
 		}
 	}
+}
+
+func (m *Model) flushLogBatch() {
+	if len(m.LogBatch) == 0 {
+		return
+	}
+	m.LogLines = append(m.LogLines, m.LogBatch...)
+	if len(m.LogLines) > m.MaxLogLines {
+		m.LogLines = m.LogLines[len(m.LogLines)-m.MaxLogLines:]
+	}
+	m.LogBatch = m.LogBatch[:0] // Clear but keep capacity
+	m.LastLogFlush = time.Now()
 }
 
 // View implements tea.Model.

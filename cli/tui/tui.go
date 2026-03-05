@@ -11,6 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Batch logs to prevent TUI corruption from rapid redraws.
+const logFlushInterval = 50 * time.Millisecond
+
 // Program wraps tea.Program with convenience methods.
 type Program struct {
 	program  *tea.Program
@@ -119,11 +122,13 @@ func (p *Program) LogWriter() *LogWriter {
 	return &LogWriter{program: p.program}
 }
 
-// LogWriter captures log output and sends it to the TUI as logMsg.
+// LogWriter captures log output, batches it, and sends to the TUI.
 type LogWriter struct {
-	program *tea.Program
-	closed  bool
-	mu      sync.Mutex
+	program  *tea.Program
+	buffer   []string
+	closed   bool
+	mu       sync.Mutex
+	hasFlush bool // Whether periodic flush is set up
 }
 
 func (w *LogWriter) Write(p []byte) (int, error) {
@@ -134,16 +139,47 @@ func (w *LogWriter) Write(p []byte) (int, error) {
 	}
 	line := strings.TrimRight(string(p), "\n")
 	if line != "" {
-		w.program.Send(logMsg{Line: line})
+		w.buffer = append(w.buffer, line)
+		// Flush immediately if batch is large enough
+		if len(w.buffer) >= 10 {
+			w.doFlushLocked()
+		}
 	}
 	return len(p), nil
 }
 
-// Close stops forwarding and silently discards further writes.
+func (w *LogWriter) doFlushLocked() {
+	if len(w.buffer) == 0 {
+		return
+	}
+	w.program.Send(logMsg{Lines: w.buffer})
+	w.buffer = w.buffer[:0] // Keep capacity
+	// Set up periodic flush if not already done
+	if !w.hasFlush {
+		w.hasFlush = true
+		// Schedule next flush 50ms from now
+		go func() {
+			time.Sleep(logFlushInterval)
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			if !w.closed {
+				w.program.Send(batchFlushLogMsg{})
+			}
+		}()
+	}
+}
+
+// Close stops forwarding and flushes any remaining buffered logs.
 func (w *LogWriter) Close() {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.closed = true
-	w.mu.Unlock()
+	if len(w.buffer) > 0 {
+		// Final flush before closing (non-blocking)
+		go func(lines []string) {
+			w.program.Send(logMsg{Lines: lines})
+		}(w.buffer)
+	}
 }
 
 // RunWithSpinner shows a spinner while running fn. Returns fn's error.
