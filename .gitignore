@@ -23,3 +23,6 @@ app/.build/
 # Downloadable binaries
 app/Resources/pulumi
 app/Packages/Sparkle/Sparkle.xcframework.zip
+
+# Frameworks (downloaded by SPM)
+app/Resources/Sparkle.framework
