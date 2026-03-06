@@ -8,9 +8,9 @@ import (
 
 // toolCallInterceptor extracts tool calls from thinking blocks.
 type toolCallInterceptor struct {
-	style             APIStyle
-	thinkingPatterns  []*regexp.Regexp
-	toolCallPattern   *regexp.Regexp
+	style            APIStyle
+	thinkingPatterns []*regexp.Regexp
+	toolCallPattern  *regexp.Regexp
 }
 
 func newToolCallInterceptor(style APIStyle) *toolCallInterceptor {
@@ -21,7 +21,7 @@ func newToolCallInterceptor(style APIStyle) *toolCallInterceptor {
 			regexp.MustCompile(`(?s)<think>(.*?)</think>`),
 		},
 		toolCallPattern: regexp.MustCompile(
-			`(?s)<(?:tool_call|function_call|tool_use)\b[^>]*(?:name=["\']([^"\']+)["\'][^>]*>(.*?)</?(?:tool_call|function_call|tool_us[et])?>`,
+			`(?s)<(?:tool_call|function_call|tool_use)\b[^>]*name=["'][^"']+["'][^>]>(.*?)</?(?:tool_call|function_call|tool_use)?>`,
 		),
 	}
 }
@@ -54,9 +54,9 @@ func (t *toolCallInterceptor) processOllama(line string) string {
 	}
 
 	var parts struct {
-		Done bool `json:"done"`
+		Done     bool   `json:"done"`
 		Response string `json:"response,omitempty"`
-		Message *struct {
+		Message  *struct {
 			Content   string          `json:"content"`
 			ToolCalls json.RawMessage `json:"tool_calls"`
 		} `json:"message,omitempty"`
@@ -86,7 +86,9 @@ func (t *toolCallInterceptor) processOllama(line string) string {
 	}
 
 	var result map[string]any
-	json.Unmarshal([]byte(line), &result)
+	if err := json.Unmarshal([]byte(line), &result); err != nil {
+		return line
+	}
 
 	switch {
 	case result["response"] != nil:
@@ -108,7 +110,7 @@ func (t *toolCallInterceptor) processOpenAIChat(line string) string {
 	}
 
 	data := strings.TrimPrefix(line, "data: ")
-	
+
 	var parts struct {
 		Choices []struct {
 			Delta struct {
@@ -129,7 +131,7 @@ func (t *toolCallInterceptor) processOpenAIChat(line string) string {
 	_, cleaned := t.extractFromThinking(content)
 
 	parts.Choices[0].Delta.Content = cleaned
-	
+
 	modified, _ := json.Marshal(parts)
 	return "data: " + string(modified) + "\n"
 }
@@ -149,7 +151,7 @@ func (t *toolCallInterceptor) extractFromThinking(content string) ([]string, str
 			thinkingStart, thinkingEnd := match[2], match[3]
 
 			thinkingContent := content[thinkingStart:thinkingEnd]
-			
+
 			tcMatches := t.toolCallPattern.FindAllString(thinkingContent, -1)
 			for _, tcMatch := range tcMatches {
 				extracted = append(extracted, tcMatch)
