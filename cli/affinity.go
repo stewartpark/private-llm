@@ -149,8 +149,8 @@ func sessionFingerprint(body []byte) uint64 {
 
 	h := fnv.New64a()
 	for i := range 3 {
-		h.Write([]byte(peek.Messages[i].Role))
-		h.Write(peek.Messages[i].Content)
+		_, _ = h.Write([]byte(peek.Messages[i].Role))
+		_, _ = h.Write(peek.Messages[i].Content)
 	}
 	return h.Sum64()
 }

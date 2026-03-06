@@ -272,14 +272,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				tp.Feed(chunk)
-				handler.Feed(chunk) //nolint:errcheck
+				_, _ = handler.Feed(chunk)
 			case <-feedSync:
 				// Drain any remaining items in feedCh before confirming
 				for {
 					select {
 					case chunk := <-feedCh:
 						tp.Feed(chunk)
-						handler.Feed(chunk) //nolint:errcheck
+						_, _ = handler.Feed(chunk)
 					default:
 						goto drained
 					}
@@ -328,7 +328,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 			tw := newTerminationAwareWriter(w, flusher, hasFlusher, tp.style, feedCh, feedSync, attempt > 0)
 			tw.StreamResponse(currentResp.Body)
-			currentResp.Body.Close()
+			_ = currentResp.Body.Close()
 
 			// Drain feedCh processing before checking premature state
 			tw.WaitFed()
@@ -363,11 +363,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			body, _ := io.ReadAll(currentResp.Body)
-			currentResp.Body.Close()
+			_ = currentResp.Body.Close()
 
 			// Feed to token parser and request handler
 			feedCh <- body
-			handler.Feed(body) //nolint:errcheck
+			_, _ = handler.Feed(body)
 
 			if finalBody == nil {
 				finalBody = body
@@ -457,7 +457,7 @@ func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, i
 				results[backend].err = err
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			var ps psResponse
 			if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
@@ -479,7 +479,10 @@ func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, i
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(psResponse{Models: merged}) //nolint:errcheck
+	if err := json.NewEncoder(w).Encode(psResponse{Models: merged}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // buildContinuationRequest creates a new request body with the assistant's partial output
@@ -857,7 +860,7 @@ func (tw *terminationAwareWriter) WaitFed() {
 // ReleaseTermination writes held termination lines to the client.
 func (tw *terminationAwareWriter) ReleaseTermination(flusher http.Flusher, hasFlusher bool) {
 	for _, line := range tw.heldLines {
-		tw.w.Write(line) //nolint:errcheck
+		_, _ = tw.w.Write(line)
 	}
 	if hasFlusher {
 		flusher.Flush()
