@@ -164,8 +164,8 @@ type Model struct {
 	// Log lines captured from log.Printf
 	LogLines        []string
 	MaxLogLines     int
+	LogBatch        []string
 	LogScrollOffset int       // 0 = bottom (newest), positive = scrolled up
-	LogBatch        []string  // Buffer for batching rapid log messages
 	LastLogFlush    time.Time // Last batch flush time
 
 	// Timing
@@ -224,6 +224,7 @@ func NewModel(actionCh chan Action) Model {
 		LogLines:      make([]string, 0),
 		MaxLogLines:   100,
 		LogBatch:      make([]string, 0),
+		LastLogFlush:  time.Now(),
 		StartTime:     time.Now(),
 	}
 }
@@ -338,6 +339,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.LogoFrame = 0
 		}
+		m.flushLogBatchIfNeeded()
 		return m, tickEvery(time.Second)
 
 	case ConfigMsg:
@@ -396,16 +398,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleRequestEvent(msg)
 
 	case PrematureCompletionEvent:
-		// Add notification to log lines that premature completion was detected
 		logLine := fmt.Sprintf("[preempt] Continuation #%d: %s", msg.RetryCount, msg.Description)
 		m.LogBatch = append(m.LogBatch, logLine)
+		m.flushLogBatchIfNeeded()
 
 	case logMsg:
-		// Buffer incoming log lines for batch processing
 		m.LogBatch = append(m.LogBatch, msg.Lines...)
-		if len(m.LogBatch) >= 10 {
-			m.flushLogBatch()
-		}
+		m.flushLogBatchIfNeeded()
 	}
 
 	return m, nil
@@ -551,17 +550,22 @@ func (m *Model) handleRequestEvent(e RequestEvent) {
 	}
 }
 
-func (m *Model) flushLogBatch() {
-	if len(m.LogBatch) == 0 {
-		return
+func (m *Model) flushLogBatchIfNeeded() {
+	// Flush if batch has 10+ lines or last flush was over 50ms ago
+	if len(m.LogBatch) >= 10 || time.Since(m.LastLogFlush) > 50*time.Millisecond {
+		if len(m.LogBatch) == 0 {
+			return
+		}
+		m.LogLines = append(m.LogLines, m.LogBatch...)
+		if len(m.LogLines) > m.MaxLogLines {
+			m.LogLines = m.LogLines[len(m.LogLines)-m.MaxLogLines:]
+		}
+		m.LogBatch = m.LogBatch[:0] // Clear but keep capacity
+		m.LastLogFlush = time.Now()
 	}
-	m.LogLines = append(m.LogLines, m.LogBatch...)
-	if len(m.LogLines) > m.MaxLogLines {
-		m.LogLines = m.LogLines[len(m.LogLines)-m.MaxLogLines:]
-	}
-	m.LogBatch = m.LogBatch[:0] // Clear but keep capacity
-	m.LastLogFlush = time.Now()
 }
+
+// View implements tea.Model.
 
 // View implements tea.Model.
 func (m Model) View() string {

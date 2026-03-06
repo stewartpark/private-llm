@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/stewartpark/private-llm/cli/interceptor"
 	"github.com/stewartpark/private-llm/cli/tui"
 )
 
@@ -256,8 +257,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	tp := newTokenParser(r.URL.Path)
 	tp.upstreamStartNano.Store(upstreamStart.UnixNano())
 
-	// Completion state tracking for premature detection
-	cs := NewCompletionState()
+	// Request handler for response processing (premature detection, tool call extraction)
+	handler := interceptor.NewRequestHandler(tp.style)
 
 	feedCh := make(chan []byte, 64)
 	feedSync := make(chan struct{}) // send to request sync, receive to confirm
@@ -271,32 +272,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				tp.Feed(chunk)
-				switch tp.style {
-				case styleOllama:
-					cs.FeedOllama(string(chunk))
-				case styleOpenAIChat:
-					cs.FeedOpenAIChat(string(chunk))
-				case styleAnthropic:
-					cs.FeedAnthropic(string(chunk), tp.lastEvent)
-				case styleOpenAIResponses:
-					cs.FeedOpenAIResponses(string(chunk), tp.lastEvent)
-				}
+				handler.Feed(chunk) //nolint:errcheck
 			case <-feedSync:
 				// Drain any remaining items in feedCh before confirming
 				for {
 					select {
 					case chunk := <-feedCh:
 						tp.Feed(chunk)
-						switch tp.style {
-						case styleOllama:
-							cs.FeedOllama(string(chunk))
-						case styleOpenAIChat:
-							cs.FeedOpenAIChat(string(chunk))
-						case styleAnthropic:
-							cs.FeedAnthropic(string(chunk), tp.lastEvent)
-						case styleOpenAIResponses:
-							cs.FeedOpenAIResponses(string(chunk), tp.lastEvent)
-						}
+						handler.Feed(chunk) //nolint:errcheck
 					default:
 						goto drained
 					}
@@ -337,7 +320,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		for attempt := range maxContinuations + 1 {
 			currentResp := resp
 			if attempt > 0 {
-				currentResp = makeContinuationRequest(ctx, r, client, endpoint, reqBody, cs.GetOutput(), tp.style, internalToken)
+				currentResp = makeContinuationRequest(ctx, r, client, endpoint, reqBody, handler.GetOutput(), tp.style, internalToken)
 				if currentResp == nil {
 					break
 				}
@@ -350,14 +333,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			// Drain feedCh processing before checking premature state
 			tw.WaitFed()
 
-			if attempt < maxContinuations && cs.IsPremature() {
+			if attempt < maxContinuations && handler.ShouldContinue() {
 				tw.DiscardTermination()
-				cs.ResetForContinuation()
-				log.Printf("[proxy] premature completion detected (continuation #%d): last=%s", attempt+1, cs.lastContentType)
+				handler.Reset()
+				log.Printf("[proxy] premature completion detected (continuation #%d)", attempt+1)
 				if tuiProg != nil {
 					tuiProg.Send(tui.PrematureCompletionEvent{
 						RetryCount:  attempt + 1,
-						Description: "ended with " + cs.lastContentType,
+						Description: "incomplete response",
 					})
 				}
 				continue
@@ -373,7 +356,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		for attempt := range maxContinuations + 1 {
 			currentResp := resp
 			if attempt > 0 {
-				currentResp = makeContinuationRequest(ctx, r, client, endpoint, reqBody, cs.GetOutput(), tp.style, internalToken)
+				currentResp = makeContinuationRequest(ctx, r, client, endpoint, reqBody, handler.GetOutput(), tp.style, internalToken)
 				if currentResp == nil {
 					break
 				}
@@ -382,18 +365,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(currentResp.Body)
 			currentResp.Body.Close()
 
-			// Feed to token parser
+			// Feed to token parser and request handler
 			feedCh <- body
-
-			// Feed to completion state
-			switch tp.style {
-			case styleOllama:
-				cs.FeedOllamaComplete(body)
-			case styleOpenAIChat:
-				cs.FeedOpenAIChatComplete(body)
-			case styleAnthropic:
-				cs.FeedAnthropicComplete(body)
-			}
+			handler.Feed(body) //nolint:errcheck
 
 			if finalBody == nil {
 				finalBody = body
@@ -401,13 +375,13 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				finalBody = mergeNonStreamingResponse(finalBody, body, tp.style)
 			}
 
-			if attempt < maxContinuations && cs.IsPremature() {
-				cs.ResetForContinuation()
-				log.Printf("[proxy] premature completion detected (continuation #%d): last=%s", attempt+1, cs.lastContentType)
+			if attempt < maxContinuations && handler.ShouldContinue() {
+				handler.Reset()
+				log.Printf("[proxy] premature completion detected (continuation #%d)", attempt+1)
 				if tuiProg != nil {
 					tuiProg.Send(tui.PrematureCompletionEvent{
 						RetryCount:  attempt + 1,
-						Description: "ended with " + cs.lastContentType,
+						Description: "incomplete response",
 					})
 				}
 				continue
@@ -512,7 +486,7 @@ func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, i
 // and a user "Continue." message appended. Returns nil if the API style doesn't support it.
 func buildContinuationRequest(originalBody []byte, assistantOutput string, style apiStyle) []byte {
 	// Only message-based APIs support continuation
-	if style != styleOllama && style != styleOpenAIChat && style != styleAnthropic {
+	if style != StyleOllama && style != StyleOpenAIChat && style != StyleAnthropic {
 		return nil
 	}
 
@@ -575,11 +549,11 @@ func makeContinuationRequest(ctx context.Context, origReq *http.Request, client 
 // appending the continuation's content to the original response.
 func mergeNonStreamingResponse(first, second []byte, style apiStyle) []byte {
 	switch style {
-	case styleOllama:
+	case StyleOllama:
 		return mergeOllamaResponse(first, second)
-	case styleOpenAIChat:
+	case StyleOpenAIChat:
 		return mergeOpenAIChatResponse(first, second)
-	case styleAnthropic:
+	case StyleAnthropic:
 		return mergeAnthropicResponse(first, second)
 	default:
 		return first
@@ -691,10 +665,10 @@ type terminationAwareWriter struct {
 	w          http.ResponseWriter
 	flusher    http.Flusher
 	hasFlusher bool
-	style      apiStyle
+	style      APIStyle
 	feedCh     chan<- []byte
 	feedSync   chan struct{} // sync channel for feed consumer
-	isCont     bool         // true for continuation responses (strip preamble)
+	isCont     bool          // true for continuation responses (strip preamble)
 
 	// Line buffering
 	buf       bytes.Buffer
@@ -707,7 +681,7 @@ type terminationAwareWriter struct {
 	seenContent bool // have we seen actual content yet?
 }
 
-func newTerminationAwareWriter(w http.ResponseWriter, flusher http.Flusher, hasFlusher bool, style apiStyle, feedCh chan<- []byte, feedSync chan struct{}, isCont bool) *terminationAwareWriter {
+func newTerminationAwareWriter(w http.ResponseWriter, flusher http.Flusher, hasFlusher bool, style APIStyle, feedCh chan<- []byte, feedSync chan struct{}, isCont bool) *terminationAwareWriter {
 	return &terminationAwareWriter{
 		w:          w,
 		flusher:    flusher,
@@ -756,11 +730,9 @@ func (tw *terminationAwareWriter) processLines(flush bool) {
 }
 
 func (tw *terminationAwareWriter) handleLine(line string) {
-	lineWithNL := []byte(line + "\n")
-
 	if tw.isTerminationLine(line) {
 		// Hold termination — still feed to parser for token counting
-		tw.heldLines = append(tw.heldLines, lineWithNL)
+		tw.heldLines = append(tw.heldLines, []byte(line+"\n"))
 		tw.feedCh <- []byte(line + "\n")
 		return
 	}
@@ -768,7 +740,7 @@ func (tw *terminationAwareWriter) handleLine(line string) {
 	// For continuations, strip preamble framing events
 	if tw.isCont && tw.isPreambleLine(line) {
 		// Feed to parser (for token counting) but don't write to client
-		tw.feedCh <- lineWithNL
+		tw.feedCh <- []byte(line + "\n")
 		return
 	}
 
@@ -777,14 +749,14 @@ func (tw *terminationAwareWriter) handleLine(line string) {
 	}
 
 	// Content line — write to client immediately
-	if _, err := tw.w.Write(lineWithNL); err != nil {
+	if _, err := tw.w.Write([]byte(line + "\n")); err != nil {
 		log.Printf("[proxy] write error: %v", err)
 		return
 	}
 	if tw.hasFlusher {
 		tw.flusher.Flush()
 	}
-	tw.feedCh <- lineWithNL
+	tw.feedCh <- []byte(line + "\n")
 
 	// Track SSE event for Anthropic/Responses
 	if strings.HasPrefix(line, "event: ") {
@@ -794,7 +766,7 @@ func (tw *terminationAwareWriter) handleLine(line string) {
 
 func (tw *terminationAwareWriter) isTerminationLine(line string) bool {
 	switch tw.style {
-	case styleOllama:
+	case StyleOllama:
 		// Ollama: JSON line with "done": true
 		if strings.Contains(line, `"done"`) {
 			var obj struct{ Done bool }
@@ -802,9 +774,9 @@ func (tw *terminationAwareWriter) isTerminationLine(line string) bool {
 				return true
 			}
 		}
-	case styleOpenAIChat:
+	case StyleOpenAIChat:
 		return strings.TrimSpace(line) == "data: [DONE]"
-	case styleAnthropic:
+	case StyleAnthropic:
 		// message_stop event and its data line
 		if strings.TrimSpace(line) == "event: message_stop" {
 			tw.lastEvent = "message_stop"
@@ -813,7 +785,7 @@ func (tw *terminationAwareWriter) isTerminationLine(line string) bool {
 		if tw.lastEvent == "message_stop" && strings.HasPrefix(line, "data: ") {
 			return true
 		}
-	case styleOpenAIResponses:
+	case StyleOpenAIResponses:
 		if strings.TrimSpace(line) == "event: response.completed" {
 			tw.lastEvent = "response.completed"
 			return true
@@ -833,7 +805,7 @@ func (tw *terminationAwareWriter) isPreambleLine(line string) bool {
 	}
 
 	switch tw.style {
-	case styleOpenAIChat:
+	case StyleOpenAIChat:
 		// Skip first chunk that has delta.role (role-setting chunk)
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
@@ -848,7 +820,7 @@ func (tw *terminationAwareWriter) isPreambleLine(line string) bool {
 				return true
 			}
 		}
-	case styleAnthropic:
+	case StyleAnthropic:
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "event: message_start" || trimmed == "event: content_block_start" {
 			tw.lastEvent = strings.TrimPrefix(trimmed, "event: ")
@@ -857,7 +829,7 @@ func (tw *terminationAwareWriter) isPreambleLine(line string) bool {
 		if (tw.lastEvent == "message_start" || tw.lastEvent == "content_block_start") && strings.HasPrefix(line, "data: ") {
 			return true
 		}
-	case styleOpenAIResponses:
+	case StyleOpenAIResponses:
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "event: response.created" || trimmed == "event: response.output_item.added" {
 			tw.lastEvent = strings.TrimPrefix(trimmed, "event: ")

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/stewartpark/private-llm/cli/common"
 )
 
 // Global cumulative token counters.
@@ -13,23 +15,30 @@ var (
 	totalOutputTokens atomic.Int64
 )
 
+// Alias for common package APIStyle
+type APIStyle = common.APIStyle
+type apiStyle = APIStyle // Legacy compatibility alias
+
+const (
+	StyleUnknown         = common.StyleUnknown
+	StyleOllama          = common.StyleOllama
+	StyleOpenAIChat      = common.StyleOpenAIChat
+	StyleAnthropic       = common.StyleAnthropic
+	StyleOpenAIResponses = common.StyleOpenAIResponses
+
+	styleUnknown         = StyleUnknown
+	styleOllama          = StyleOllama
+	styleOpenAIChat      = StyleOpenAIChat
+	styleAnthropic       = StyleAnthropic
+	styleOpenAIResponses = StyleOpenAIResponses
+)
+
 // GetTokenCounts returns cumulative (input, output) token counts.
 func GetTokenCounts() (int64, int64) {
 	return totalInputTokens.Load(), totalOutputTokens.Load()
 }
 
-// apiStyle determines which parser to use for a given request path.
-type apiStyle int
-
-const (
-	styleUnknown apiStyle = iota
-	styleOllama           // /api/generate, /api/chat
-	styleOpenAIChat       // /v1/chat/completions
-	styleAnthropic        // /v1/messages
-	styleOpenAIResponses  // /v1/responses
-)
-
-func detectAPIStyle(path string) apiStyle {
+func detectAPIStyle(path string) APIStyle {
 	switch {
 	case strings.HasPrefix(path, "/api/generate"), strings.HasPrefix(path, "/api/chat"):
 		return styleOllama
@@ -53,11 +62,11 @@ type chatMessage struct {
 // chatRequest is the shared request body structure for generation endpoints.
 // Covers fields common to Ollama (/api/generate, /api/chat) and OpenAI-compatible APIs.
 type chatRequest struct {
-	Model    string            `json:"model"`
-	Prompt   string            `json:"prompt,omitempty"`
-	Messages []chatMessage     `json:"messages,omitempty"`
-	Stream   *bool             `json:"stream,omitempty"`
-	Options  map[string]any    `json:"options,omitempty"`
+	Model    string         `json:"model"`
+	Prompt   string         `json:"prompt,omitempty"`
+	Messages []chatMessage  `json:"messages,omitempty"`
+	Stream   *bool          `json:"stream,omitempty"`
+	Options  map[string]any `json:"options,omitempty"`
 }
 
 // tokenParser parses streaming response data to count tokens in real time.
@@ -179,10 +188,10 @@ func (p *tokenParser) parseOllamaLine(line string) {
 	}
 
 	var obj struct {
-		Done             bool   `json:"done"`
-		Response         string `json:"response"`          // /api/generate
-		Message          *struct{ Content string } `json:"message"` // /api/chat
-		PromptEvalCount  int64  `json:"prompt_eval_count"`
+		Done            bool                      `json:"done"`
+		Response        string                    `json:"response"` // /api/generate
+		Message         *struct{ Content string } `json:"message"`  // /api/chat
+		PromptEvalCount int64                     `json:"prompt_eval_count"`
 	}
 	if err := json.Unmarshal([]byte(line), &obj); err != nil {
 		return
