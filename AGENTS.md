@@ -6,6 +6,13 @@ Enterprise-grade local LLM proxy with mTLS, zero-trust security, auto-rotating c
 
 **Deployed Infrastructure**: Go/Pulumi GCP provisioning (no Terraform). State stored locally at `~/.config/private-llm/state/`.
 
+**Building & Testing**:
+```bash
+make build        # Build CLI + macOS app
+make install      # Build and install to ~/.local/bin & /Applications
+make clean        # Remove build artifacts
+```
+
 ---
 
 ## Technical Decisions & Architecture
@@ -200,11 +207,19 @@ Ops Loop (single goroutine):
 - Better UX for desktop users
 
 **How It Works**:
-- `AppDelegate`: status polling (5s), icon updates, menu management
+- `AppDelegate`: status polling (5s), icon updates, menu management, auto-updater
 - `TerminalWindowController`: LocalProcessTerminalView, env extraction (login shell)
 - Binary search: bundled → sibling → ~/.local/bin → PATH
 - Auto-starts `private-llm` CLI on launch (hidden)
 - Status file: `~/.config/private-llm/status` (consumed by both CLI and app)
+
+**Auto-Updater** (See [`UPDATER.md`](UPDATER.md) for maintenance):
+- Sparkle framework integrated via SPM binary package (`app/Packages/Sparkle/`)
+- Checks on app launch, silently downloads updates in background
+- Prompts user to restart into new version after download completes
+- Manual check: menu bar → right-click → "Check for Updates..."
+- Release workflow downloads Sparkle, signs it, notarizes DMG
+- Update feed: `appcast.xml` at repo root (manually updated on release)
 
 **Key Design**:
 - apps get minimal env via launchd → launch login shell to capture user PATH
@@ -331,8 +346,17 @@ journalctl -u private-llm -f
 | File | Purpose |
 |------|-------|
 | `main.swift` | NSApplication entry point |
-| `AppDelegate.swift` | Status polling, menu bar icon, window visibility |
-| `TerminalWindowController.swift` | TerminalView, process management, env extraction |
+| `AppDelegate.swift` | Status polling, menu bar icon, window visibility, auto-updater (Sparkle) |
+| `TerminalWindowController.swift</reader>
+| `Packages/Sparkle/Package.swift` | Sparkle binary package manifest (auto-update framework)|
+| `Packages/Sparkle/Sparkle.xcframework.zip` | Sparkle framework bundle (11MB, committed to repo)
+
+### Auto-Updater
+
+| File | Purpose |
+|------|-------|
+| `appcast.xml` | Update feed manifest (manually edited on release) |
+| `UPDATER.md` | Maintenance guide for updating appcast.xml post-release` | TerminalView, process management, env extraction |
 
 ### Linux Packaging (`packaging/linux/`)
 
@@ -496,4 +520,4 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 
 ---
 
-*Last updated: 2026-02-19 - Added Linux systemd service support*
+*Last updated: 2026-03-05 - Added macOS auto-updater (Sparkle) integration
