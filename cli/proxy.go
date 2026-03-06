@@ -257,8 +257,15 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	tp := newTokenParser(r.URL.Path)
 	tp.upstreamStartNano.Store(upstreamStart.UnixNano())
 
+	// Setup log callback for interceptors
+	logCb := func(msg string) {
+		if tuiProg != nil {
+			tuiProg.Send(tui.LogBatch{Lines: []string{msg}})
+		}
+	}
+
 	// Request handler for response processing (premature detection, tool call extraction)
-	handler := interceptor.NewRequestHandler(tp.style)
+	handler := interceptor.NewRequestHandler(tp.style, interceptor.WithLogCallback(logCb))
 
 	feedCh := make(chan []byte, 64)
 	feedSync := make(chan struct{}) // send to request sync, receive to confirm
@@ -334,14 +341,12 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			tw.WaitFed()
 
 			if attempt < maxContinuations && handler.ShouldContinue() {
+				reason := handler.ShouldContinueReason()
 				tw.DiscardTermination()
 				handler.Reset()
-				log.Printf("[proxy] premature completion detected (continuation #%d)", attempt+1)
+				log.Printf("[proxy] premature completion detected (continuation #%d, reason: %s)", attempt+1, reason)
 				if tuiProg != nil {
-					tuiProg.Send(tui.PrematureCompletionEvent{
-						RetryCount:  attempt + 1,
-						Description: "incomplete response",
-					})
+					tuiProg.Send(tui.LogBatch{Lines: []string{fmt.Sprintf("[intercept] Continuation #%d: %s", attempt+1, reason)}})
 				}
 				continue
 			}
@@ -376,13 +381,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if attempt < maxContinuations && handler.ShouldContinue() {
+				reason := handler.ShouldContinueReason()
 				handler.Reset()
-				log.Printf("[proxy] premature completion detected (continuation #%d)", attempt+1)
+				log.Printf("[proxy] premature completion detected (continuation #%d, reason: %s)", attempt+1, reason)
 				if tuiProg != nil {
-					tuiProg.Send(tui.PrematureCompletionEvent{
-						RetryCount:  attempt + 1,
-						Description: "incomplete response",
-					})
+					tuiProg.Send(tui.LogBatch{Lines: []string{fmt.Sprintf("[intercept] Continuation #%d: %s", attempt+1, reason)}})
 				}
 				continue
 			}

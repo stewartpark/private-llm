@@ -2,6 +2,7 @@ package interceptor
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -26,14 +27,22 @@ func newToolCallInterceptor(style APIStyle) *toolCallInterceptor {
 	}
 }
 
-func (t *toolCallInterceptor) Feed(chunk []byte) ([]byte, error) {
+func (t *toolCallInterceptor) Feed(chunk []byte, logCb LogCallback) ([]byte, error) {
 	line := string(chunk)
 
 	switch t.style {
 	case StyleOllama:
-		return []byte(t.processOllama(line)), nil
+		modified, count := t.processOllama(line)
+		if count > 0 && logCb != nil {
+			logCb(fmt.Sprintf("[interceptor] Extracted %d tool call(s) from thinking blocks", count))
+		}
+		return []byte(modified), nil
 	case StyleOpenAIChat:
-		return []byte(t.processOpenAIChat(line)), nil
+		modified, count := t.processOpenAIChat(line)
+		if count > 0 && logCb != nil {
+			logCb(fmt.Sprintf("[interceptor] Extracted %d tool call(s) from thinking blocks", count))
+		}
+		return []byte(modified), nil
 	default:
 		return chunk, nil
 	}
@@ -47,10 +56,10 @@ func (t *toolCallInterceptor) Reset() {
 	// No state to reset
 }
 
-func (t *toolCallInterceptor) processOllama(line string) string {
+func (t *toolCallInterceptor) processOllama(line string) (string, int) {
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return line
+		return line, 0
 	}
 
 	var parts struct {
@@ -63,11 +72,11 @@ func (t *toolCallInterceptor) processOllama(line string) string {
 	}
 
 	if err := json.Unmarshal([]byte(line), &parts); err != nil {
-		return line
+		return line, 0
 	}
 
 	if parts.Done {
-		return line
+		return line, 0
 	}
 
 	var content string
@@ -77,17 +86,17 @@ func (t *toolCallInterceptor) processOllama(line string) string {
 	case parts.Message != nil && parts.Message.Content != "":
 		content = parts.Message.Content
 	default:
-		return line
+		return line, 0
 	}
 
-	_, cleaned := t.extractFromThinking(content)
-	if cleaned == content {
-		return line
+	extracted, cleaned := t.extractFromThinking(content)
+	if len(extracted) == 0 {
+		return line, 0
 	}
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(line), &result); err != nil {
-		return line
+		return line, 0
 	}
 
 	switch {
@@ -101,12 +110,12 @@ func (t *toolCallInterceptor) processOllama(line string) string {
 	}
 
 	modified, _ := json.Marshal(result)
-	return string(modified)
+	return string(modified), len(extracted)
 }
 
-func (t *toolCallInterceptor) processOpenAIChat(line string) string {
+func (t *toolCallInterceptor) processOpenAIChat(line string) (string, int) {
 	if !strings.HasPrefix(line, "data: ") || strings.Contains(line, "[DONE]") {
-		return line
+		return line, 0
 	}
 
 	data := strings.TrimPrefix(line, "data: ")
@@ -120,20 +129,20 @@ func (t *toolCallInterceptor) processOpenAIChat(line string) string {
 	}
 
 	if err := json.Unmarshal([]byte(data), &parts); err != nil {
-		return line
+		return line, 0
 	}
 
 	if len(parts.Choices) == 0 {
-		return line
+		return line, 0
 	}
 
 	content := parts.Choices[0].Delta.Content
-	_, cleaned := t.extractFromThinking(content)
+	extracted, cleaned := t.extractFromThinking(content)
 
 	parts.Choices[0].Delta.Content = cleaned
 
 	modified, _ := json.Marshal(parts)
-	return "data: " + string(modified) + "\n"
+	return "data: " + string(modified) + "\n", len(extracted)
 }
 
 func (t *toolCallInterceptor) extractFromThinking(content string) ([]string, string) {

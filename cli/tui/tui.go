@@ -132,24 +132,32 @@ type LogWriter struct {
 }
 
 func (w *LogWriter) startFlusher() {
-	w.once.Do(func() {
-		go func() {
-			ticker := time.NewTicker(logFlushInterval)
-			defer ticker.Stop()
-			for range ticker.C {
-				w.mu.Lock()
-				if w.closed || len(w.buffer) == 0 {
-					w.mu.Unlock()
-					continue
-				}
+	go func() {
+		defer time.AfterFunc(200*time.Millisecond, func() {
+			w.mu.Lock()
+			if len(w.buffer) > 0 {
 				lines := make([]string, len(w.buffer))
 				copy(lines, w.buffer)
 				w.buffer = w.buffer[:0]
 				w.mu.Unlock()
-				w.program.Send(logMsg{Lines: lines})
+				w.program.Send(LogBatch{Lines: lines})
+			} else {
+				w.mu.Unlock()
 			}
-		}()
-	})
+		}).Stop()
+
+		time.Sleep(100 * time.Millisecond)
+		w.mu.Lock()
+		if len(w.buffer) > 0 {
+			lines := make([]string, len(w.buffer))
+			copy(lines, w.buffer)
+			w.buffer = w.buffer[:0]
+			w.mu.Unlock()
+			w.program.Send(LogBatch{Lines: lines})
+		} else {
+			w.mu.Unlock()
+		}
+	}()
 }
 
 func (w *LogWriter) Write(p []byte) (int, error) {
@@ -174,7 +182,7 @@ func (w *LogWriter) Close() {
 	if len(w.buffer) > 0 {
 		// Final flush before closing (non-blocking)
 		go func(lines []string) {
-			w.program.Send(logMsg{Lines: lines})
+			w.program.Send(LogBatch{Lines: lines})
 		}(w.buffer)
 	}
 }

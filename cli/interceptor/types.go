@@ -1,10 +1,15 @@
 package interceptor
 
-import "github.com/stewartpark/private-llm/cli/common"
+import (
+	"github.com/stewartpark/private-llm/cli/common"
+)
+
+// LogCallback is called by interceptors when they perform notable actions.
+type LogCallback func(msg string)
 
 // Interceptor processes response chunks and determines if the stream should continue.
 type Interceptor interface {
-	Feed(chunk []byte) ([]byte, error)
+	Feed(chunk []byte, logCb LogCallback) ([]byte, error)
 	ShouldContinue() bool
 	Reset()
 }
