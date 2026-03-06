@@ -124,15 +124,22 @@ class TerminalWindowController: NSWindowController, NSWindowDelegate {
 
         // Build environment with TERM and a full PATH for color support and tool discovery
         let shellEnv = Self.shellEnvironment()
+
+        // Prepend bundled Resources dir to PATH so bundled pulumi is found first
+        let resourcesDir = Bundle.main.resourcePath ?? ""
+        var mergedEnv = shellEnv
+        let existingPath = shellEnv["PATH"] ?? "/usr/bin:/bin"
+        mergedEnv["PATH"] = resourcesDir + ":" + existingPath
+
         var env: [String] = []
-        for (key, value) in shellEnv {
+        for (key, value) in mergedEnv {
             if key == "TERM" { continue }
             env.append("\(key)=\(value)")
         }
         env.append("TERM=xterm-256color")
 
         // Check that pulumi is reachable before spawning private-llm
-        if let missing = Self.findMissingDeps(["pulumi", "gcloud"], env: shellEnv) {
+        if let missing = Self.findMissingDeps(["pulumi", "gcloud"], env: mergedEnv) {
             let terminal = terminalView.getTerminal()
             terminal.feed(text: "\r\n  \u{1B}[1;31mMissing dependencies:\u{1B}[0m\r\n\r\n")
             for (name, hint) in missing {
@@ -198,7 +205,6 @@ class TerminalWindowController: NSWindowController, NSWindowDelegate {
     /// Returns nil if all found, or an array of (name, install hint) for missing ones.
     private static func findMissingDeps(_ deps: [String], env: [String: String]) -> [(String, String)]? {
         let hints: [String: String] = [
-            "pulumi": "brew install pulumi",
             "gcloud": "brew install --cask google-cloud-sdk",
         ]
 
