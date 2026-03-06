@@ -82,8 +82,27 @@ jobs:
 
           rm -f "$RUNNER_TEMP/cert.p12"
 
+      - name: Download Sparkle Framework
+        run: |
+          curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip
+          unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted
+          cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
+
       - name: Build
-        run: make build
+        run: |
+          cd cli && go build -o ../bin/private-llm .
+          cd app && swift build -c release
+          rm -rf "bin/Private LLM.app"
+          mkdir -p "bin/Private LLM.app/Contents/MacOS"
+          mkdir -p "bin/Private LLM.app/Contents/Resources"
+          mkdir -p "bin/Private LLM.app/Contents/Frameworks"
+          cp app/.build/release/PrivateLLM "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
+          cp app/Resources/Info.plist "bin/Private LLM.app/Contents/Info.plist"
+          cp bin/private-llm "bin/Private LLM.app/Contents/Resources/private-llm"
+          cp app/Resources/AppIcon.icns "bin/Private LLM.app/Contents/Resources/AppIcon.icns"
+          cp app/Resources/MenuBarIcon.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon.png"
+          cp app/Resources/MenuBarIcon@2x.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon@2x.png"
+          cp -r app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/"
 
       - name: Sign binaries and app
         env:
@@ -94,6 +113,14 @@ jobs:
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Resources/private-llm"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
 
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \

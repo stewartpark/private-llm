@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Private LLM Changelog</title>
+        <description>Most recent changes with links to updates.</description>
+        <language>en</language>
+        <!-- Latest release -->
+        <item>
+            <title>Version 0.0.1-rc24</title>
+            <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1-rc24</link>
+            <sparkle:version>0.0.1-rc24</sparkle:version>
+            <sparkle:shortVersionString>0.0.1-rc24</sparkle:shortVersionString>
+            <pubDate>Thu, 05 Mar 2026 08:43:32 +0000</pubDate>
+            <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.1-rc24/Private-LLM.dmg" length="37252098" type="application/octet-stream" />
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+        </item>
+    </channel>
+</rss>

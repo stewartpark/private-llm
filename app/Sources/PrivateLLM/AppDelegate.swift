@@ -1,4 +1,6 @@
+
 import Cocoa
+import Sparkle
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
@@ -6,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusTimer: Timer?
     private var lastVMStatus: String = ""
     private var menu: NSMenu!
+	private var updater: SUUpdater!
 
     private static let statusFilePath: String = {
         NSHomeDirectory() + "/.config/private-llm/status"
@@ -14,11 +17,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let attentionStatuses: Set<String> = ["PROVISIONING", "AUTH ERROR"]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+		updater = SUUpdater.shared()
+		updater.updateCheckInterval = 0
+		updater.automaticallyDownloadsUpdates = true
+		updater.checkForUpdatesInBackground()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateIcon(running: false)
 
         menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Hide", action: #selector(toggleWindow), keyEquivalent: ""))
+		menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Private LLM", action: #selector(quitApp), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -50,6 +59,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.checkVMStatus()
         }
     }
+
+	@objc private func checkForUpdates() {
+		updater.checkForUpdates(self)
+	}
 
     private func checkVMStatus() {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.statusFilePath)),

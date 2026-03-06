@@ -5,12 +5,13 @@ let package = Package(
     name: "PrivateLLM",
     platforms: [.macOS(.v13)],
     dependencies: [
+        .package(path: "Packages/Sparkle"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.2.3"),
     ],
     targets: [
         .executableTarget(
             name: "PrivateLLM",
-            dependencies: ["SwiftTerm"],
+            dependencies: ["SwiftTerm", "Sparkle"],
             path: "Sources/PrivateLLM"
         ),
     ]
