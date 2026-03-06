@@ -19,3 +19,7 @@ Thumbs.db
 app/.build/
 
 .pulumi-cache/
+
+# Downloadable binaries
+app/Resources/pulumi
+app/Packages/Sparkle/Sparkle.xcframework.zip
