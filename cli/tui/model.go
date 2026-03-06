@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -80,12 +79,6 @@ type StreamingRate struct {
 	OutputTokPerSec float64
 }
 
-// PrematureCompletionEvent signals that premature completion was detected and retry occurred.
-type PrematureCompletionEvent struct {
-	RetryCount  int
-	Description string
-}
-
 // Internal message types for BubbleTea update loop.
 type (
 	viewChangeMsg   struct{ View ViewType }
@@ -94,9 +87,9 @@ type (
 		Steps   []string
 		Current int
 	}
-	doneMsg struct{ Err error }
-	logMsg  struct{ Lines []string } // Batched log lines
-	tickMsg time.Time
+	doneMsg  struct{ Err error }
+	LogBatch struct{ Lines []string } // Batched log lines (used by interceptors, etc.)
+	tickMsg  time.Time
 )
 
 func tickEvery(d time.Duration) tea.Cmd {
@@ -397,12 +390,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RequestEvent:
 		m.handleRequestEvent(msg)
 
-	case PrematureCompletionEvent:
-		logLine := fmt.Sprintf("[preempt] Continuation #%d: %s", msg.RetryCount, msg.Description)
-		m.LogBatch = append(m.LogBatch, logLine)
-		m.flushLogBatchIfNeeded()
-
-	case logMsg:
+	case LogBatch:
 		m.LogBatch = append(m.LogBatch, msg.Lines...)
 		m.flushLogBatchIfNeeded()
 	}
