@@ -11,9 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Batch logs to prevent TUI corruption from rapid redraws.
-const logFlushInterval = 50 * time.Millisecond
-
 // Program wraps tea.Program with convenience methods.
 type Program struct {
 	program  *tea.Program
@@ -128,7 +125,6 @@ type LogWriter struct {
 	buffer  []string
 	closed  bool
 	mu      sync.Mutex
-	once    sync.Once
 }
 
 func (w *LogWriter) startFlusher() {
