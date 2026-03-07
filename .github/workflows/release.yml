@@ -82,17 +82,14 @@ jobs:
 
           rm -f "$RUNNER_TEMP/cert.p12"
 
-       - name: Download Sparkle Framework
+      - name: Download Sparkle Framework
         run: |
           curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip
           unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted
           cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
-          # Fix ambiguous bundle format: copy nested Info.plist (correct format) over root one
-          NESTED_PLIST="app/Resources/Sparkle.framework/Versions/B/Info.plist"
-          ROOT_PLIST="app/Resources/Sparkle.framework/Info.plist"
-          if [ -f "$NESTED_PLIST" ] && [ -f "$ROOT_PLIST" ]; then
-            cp "$NESTED_PLIST" "$ROOT_PLIST"
-          fi
+
+          # Fix ambiguous bundle format: add proper package type
+          /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" app/Resources/Sparkle.framework/Info.plist 2>/dev/null || true
 
       - name: Download Pulumi CLI
         run: |
@@ -132,12 +129,24 @@ jobs:
         run: |
           IDENTITY="Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)"
 
-          codesign --force --options runtime --timestamp \
-            --sign "$IDENTITY" \
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Resources/private-llm"
 
-          codesign --force --deep --options runtime --timestamp \
-            --sign "$IDENTITY" \
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
+
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app"
 
       - name: Create DMG
