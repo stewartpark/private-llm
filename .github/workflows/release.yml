@@ -87,6 +87,11 @@ jobs:
           curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip
           unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted
           cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
+          # Fix ambiguous bundle format for codesign --deep
+          PLIST="app/Resources/Sparkle.framework/Info.plist"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Delete :CFBundlePackageType" "$PLIST" 2>/dev/null || true
+          fi
 
       - name: Download Pulumi CLI
         run: |
@@ -133,8 +138,6 @@ jobs:
           codesign --force --deep --options runtime --timestamp \
             --sign "$IDENTITY" \
             "bin/Private LLM.app"
-
-          codesign -dvv "bin/Private LLM.app"
 
       - name: Create DMG
         run: |
