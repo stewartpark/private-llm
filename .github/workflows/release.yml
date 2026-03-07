@@ -130,10 +130,6 @@ jobs:
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Resources/private-llm"
 
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-
           codesign --force --deep --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
