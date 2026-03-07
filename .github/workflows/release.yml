@@ -136,7 +136,9 @@ jobs:
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
 
-          # Skip Sparkle.framework direct signing - ambiguous bundle format. Use --deep on app instead.
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
 
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
