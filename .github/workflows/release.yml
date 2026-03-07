@@ -86,11 +86,9 @@ jobs:
         run: |
           curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip
           unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted
-           cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
-
-           # Fix: Sparkle.framework from SPM is missing root Info.plist
-           # Copy from Versions/B/Resources to create valid bundle structure for codesign
-           cp app/Resources/Sparkle.framework/Versions/B/Resources/Info.plist app/Resources/Sparkle.framework/Info.plist
+          cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
+          # Fix: copy Info.plist from nested location to root for codesign compatibility
+          cp app/Resources/Sparkle.framework/Versions/B/Resources/Info.plist app/Resources/Sparkle.framework/Info.plist
 
       - name: Download Pulumi CLI
         run: |
@@ -138,17 +136,17 @@ jobs:
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
 
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
+          # Skip Sparkle.framework direct signing - ambiguous bundle format. Use --deep on app instead.
 
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
 
-          codesign --force --deep --options runtime \
+          codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app"
+
+          codesign -dvv "bin/Private LLM.app"
 
       - name: Create DMG
         run: |
