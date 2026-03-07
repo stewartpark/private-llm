@@ -126,25 +126,11 @@ jobs:
         run: |
           IDENTITY="Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)"
 
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" \
             "bin/Private LLM.app/Contents/Resources/private-llm"
 
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
-
-          codesign --force --options runtime \
-            --timestamp \
-            --deep \
+          codesign --force --deep --options runtime --timestamp \
             --sign "$IDENTITY" \
             "bin/Private LLM.app"
 
