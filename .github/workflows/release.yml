@@ -86,9 +86,7 @@ jobs:
         run: |
           curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip
           unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted
-          cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"
-          # Fix: copy Info.plist from nested location to root for codesign compatibility
-          cp app/Resources/Sparkle.framework/Versions/B/Resources/Info.plist app/Resources/Sparkle.framework/Info.plist
+          ditto /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/Sparkle.framework"
 
       - name: Download Pulumi CLI
         run: |
@@ -119,7 +117,7 @@ jobs:
           cp app/Resources/AppIcon.icns "bin/Private LLM.app/Contents/Resources/AppIcon.icns"
           cp app/Resources/MenuBarIcon.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon.png"
           cp app/Resources/MenuBarIcon@2x.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon@2x.png"
-          cp -r app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/"
+          ditto app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
           ln -sf ../Frameworks/Sparkle.framework/Versions/B/Autoupdate "bin/Private LLM.app/Contents/MacOS/Autoupdate" 2>/dev/null || true
 
       - name: Sign binaries and app

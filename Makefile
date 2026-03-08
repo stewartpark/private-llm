@@ -7,7 +7,7 @@ download-sparkle:
 		echo "Downloading Sparkle framework..."; \
 		curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip; \
 		unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted; \
-        cp -r /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/"; \
+        ditto /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/Sparkle.framework"; \
 		rm -rf /tmp/sparkle_spm.zip /tmp/sparkle_extracted; \
 		echo "Downloaded Sparkle to app/Resources/"; \
 	fi
@@ -42,7 +42,7 @@ build: download-sparkle download-pulumi
 	cp app/Resources/MenuBarIcon.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon.png"
 	cp app/Resources/MenuBarIcon@2x.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon@2x.png"
 	@echo "Copying Sparkle framework..."
-	cp -r app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/"
+	ditto app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
 	ln -sf ../Frameworks/Sparkle.framework/Versions/B/Autoupdate "bin/Private LLM.app/Contents/MacOS/Autoupdate" 2>/dev/null || true
 	@echo "Built: bin/private-llm and bin/Private LLM.app"
 
