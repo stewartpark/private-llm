@@ -409,7 +409,7 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.KvCacheType = promptSelect("KV cache type", kvCacheOptions, kvDefault)
 
 	cfg.NumBatch = promptInt("Batch size (OLLAMA_NUM_BATCH)", orDefaultInt(cfg.NumBatch, 1024))
-	cfg.NumInstances = promptInt("Ollama instances (1-4, for concurrency)", orDefaultInt(cfg.NumInstances, 2))
+	cfg.NumInstances = promptInt("Ollama instances (1-4, for concurrency)", orDefaultInt(cfg.NumInstances, 1))
 	cfg.NumInstances = max(1, min(4, cfg.NumInstances))
 	cfg.NumParallel = promptInt("Parallel requests (OLLAMA_NUM_PARALLEL)", orDefaultInt(cfg.NumParallel, 1))
 	cfg.IdleTimeout = promptInt("Idle timeout (seconds)", orDefaultInt(cfg.IdleTimeout, 300))

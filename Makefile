@@ -1,16 +1,6 @@
-.PHONY: build install clean download-sparkle download-pulumi
+.PHONY: build install clean download-pulumi
 
 PULUMI_VERSION := 3.161.0
-
-download-sparkle:
-	@if [ ! -d "app/Resources/Sparkle.framework" ]; then \
-		echo "Downloading Sparkle framework..."; \
-		curl -sL https://github.com/sparkle-project/Sparkle/releases/download/2.9.0/Sparkle-for-Swift-Package-Manager.zip -o /tmp/sparkle-spm.zip; \
-		unzip -q /tmp/sparkle-spm.zip -d /tmp/sparkle_extracted; \
-        ditto /tmp/sparkle_extracted/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework "app/Resources/Sparkle.framework"; \
-		rm -rf /tmp/sparkle_spm.zip /tmp/sparkle_extracted; \
-		echo "Downloaded Sparkle to app/Resources/"; \
-	fi
 
 download-pulumi:
 	@if [ ! -f "bin/pulumi" ]; then \
@@ -25,7 +15,7 @@ download-pulumi:
 		echo "Downloaded Pulumi CLI to bin/pulumi"; \
 	fi
 
-build: download-sparkle download-pulumi
+build: download-pulumi
 	cd cli && go build -o ../bin/private-llm .
 	cd app && swift build -c release
 	@rm -rf "bin/Private LLM.app"
@@ -42,7 +32,7 @@ build: download-sparkle download-pulumi
 	cp app/Resources/MenuBarIcon.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon.png"
 	cp app/Resources/MenuBarIcon@2x.png "bin/Private LLM.app/Contents/Resources/MenuBarIcon@2x.png"
 	@echo "Copying Sparkle framework..."
-	ditto app/Resources/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
+	ditto app/.build/release/Sparkle.framework "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
 	ln -sf ../Frameworks/Sparkle.framework/Versions/B/Autoupdate "bin/Private LLM.app/Contents/MacOS/Autoupdate" 2>/dev/null || true
 	@echo "Built: bin/private-llm and bin/Private LLM.app"
 

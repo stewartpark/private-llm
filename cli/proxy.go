@@ -129,7 +129,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fan-out /api/ps across all backends and merge results.
-	if r.URL.Path == "/api/ps" && assigner.numInstances > 1 {
+	if r.URL.Path == "/api/ps" {
 		fanOutPS(ctx, w, client, ip, internalToken)
 		return
 	}
@@ -159,13 +159,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	backend := assigner.Acquire(reqBody)
 	defer assigner.Release(backend)
 
-	// Path-based routing: /backend/N prefix for multi-instance, direct for single
+	// Path-based routing: always use /backend/N prefix for deterministic routing
 	var endpoint string
-	if assigner.numInstances > 1 {
-		endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
-	} else {
-		endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
-	}
+	endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
 	if r.URL.RawQuery != "" {
 		endpoint += "?" + r.URL.RawQuery
 	}
@@ -206,11 +202,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				// Re-read state after recovery
 				ip = getCachedVMIP()
-				if assigner.numInstances > 1 {
-					endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
-				} else {
-					endpoint = fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
-				}
+				endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
 				if r.URL.RawQuery != "" {
 					endpoint += "?" + r.URL.RawQuery
 				}

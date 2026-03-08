@@ -178,18 +178,16 @@ done
 
 # Generate per-backend handle_path routes for deterministic path-based routing
 BACKEND_ROUTES=""
-if [ "$NUM_INSTANCES" -gt 1 ]; then
-    for i in $(seq 1 "$NUM_INSTANCES"); do
-        PORT=$((BASE_PORT + i - 1))
-        BACKEND_ROUTES="${BACKEND_ROUTES}
+for i in $(seq 1 "$NUM_INSTANCES"); do
+    PORT=$((BASE_PORT + i - 1))
+    BACKEND_ROUTES="${BACKEND_ROUTES}
     handle_path /backend/${i}/* {
         reverse_proxy localhost:${PORT} {
             header_up Host localhost:${PORT}
             flush_interval -1
         }
     }"
-    done
-fi
+done
 
 # Template Caddyfile with internal token, upstreams, and backend routes
 sudo mkdir -p /etc/caddy

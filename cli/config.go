@@ -114,7 +114,7 @@ func applyDefaults() {
 		cfg.ContextLength = 262144
 	}
 	if cfg.NumInstances < 1 || cfg.NumInstances == 0 {
-		cfg.NumInstances = 2
+		cfg.NumInstances = 1
 	}
 	if cfg.NumInstances > 4 {
 		cfg.NumInstances = 4
