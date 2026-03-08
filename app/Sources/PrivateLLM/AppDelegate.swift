@@ -128,7 +128,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        updateMenuTitle(hidden: false)
+        let isVisible = terminalController?.window?.isVisible == true
+        updateMenuTitle(hidden: isVisible)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

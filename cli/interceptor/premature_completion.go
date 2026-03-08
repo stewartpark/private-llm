@@ -120,8 +120,8 @@ func (i *prematureCompletionInterceptor) feedOllama(line string) {
 
 func (i *prematureCompletionInterceptor) ollamaContentType() string {
 	content := i.accumulatedBytes.String()
-	lastOpen := strings.LastIndex(content, "</think>")
-	lastClose := strings.LastIndex(content, "</th"+"ink"+"ing>")
+	lastOpen := strings.LastIndex(content, "<think>")
+	lastClose := strings.LastIndex(content, "</think>")
 	if lastOpen > lastClose {
 		return contentTypeThinking
 	}
