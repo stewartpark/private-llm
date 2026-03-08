@@ -128,9 +128,27 @@ jobs:
         run: |
           IDENTITY="Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)"
 
+          # Sign bundled CLI tools
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Resources/private-llm"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Resources/pulumi"
+
+          # Sign Sparkle framework internals (deepest first)
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
 
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
@@ -140,6 +158,11 @@ jobs:
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
 
+          codesign --force --options runtime \
+            --sign "$IDENTITY" --timestamp \
+            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
+
+          # Sign main binary and app bundle
           codesign --force --options runtime \
             --sign "$IDENTITY" --timestamp \
             "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
@@ -181,7 +204,21 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait --timeout 20m
+            --wait --timeout 20m || {
+              # Fetch the notarization log on failure
+              SUBMISSION_ID=$(xcrun notarytool history \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_ID_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" 2>/dev/null | head -5 | grep -oE '[0-9a-f-]{36}' | head -1)
+              if [ -n "$SUBMISSION_ID" ]; then
+                echo "--- Notarization log ---"
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_ID_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" 2>/dev/null || true
+              fi
+              exit 1
+            }
 
           xcrun stapler staple "bin/Private-LLM.dmg"
 
