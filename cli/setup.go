@@ -404,8 +404,8 @@ func runInteractiveSetup(firstRun bool) {
 
 	cfg.ContextLength = promptInt("Context length", orDefaultInt(cfg.ContextLength, 262144))
 
-	kvCacheOptions := []string{"q8_0", "q4_0", "f16"}
-	kvDefault := findOption(kvCacheOptions, orDefault(cfg.KvCacheType, "q8_0"), 0)
+	kvCacheOptions := []string{"bf16", "q8_0", "q4_0", "f16"}
+	kvDefault := findOption(kvCacheOptions, orDefault(cfg.KvCacheType, "bf16"), 0)
 	cfg.KvCacheType = promptSelect("KV cache type", kvCacheOptions, kvDefault)
 
 	cfg.NumBatch = promptInt("Batch size (OLLAMA_NUM_BATCH)", orDefaultInt(cfg.NumBatch, 1024))

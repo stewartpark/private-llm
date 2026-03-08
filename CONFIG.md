@@ -33,7 +33,7 @@ This guide documents all available configuration options for `agent.json`, which
 |-------|------|-|------------|
 | `default_model` | string | `stewartpark/qwen3.5` | Model to pull and load on VM boot. |
 | `context_length` | int | `262144` | Context window size (tokens). |
-| `kv_cache_type` | string | `q8_0` | KV cache quantization: `q8_0`, `q4_0`, or `f16`. Higher precision = more VRAM. |
+| `kv_cache_type` | string | `bf16` | KV cache type: `bf16`, `q8_0`, `q4_0`, or `f16`. Higher precision = more VRAM. |
 | `num_batch` | int | `1024` | Batch size for prompt processing (`OLLAMA_NUM_BATCH`). |
 | `num_instances` | int | `2` | Number of Ollama instances (1-4). More instances = higher concurrency. |
 | `num_parallel` | int | `1` | Parallel requests per instance (`OLLAMA_NUM_PARALLEL`). Set to 1 for large models with `num_instances > 1`. |
@@ -151,7 +151,7 @@ Zones are automatically filtered based on your selected machine type. Run `priva
   "machine_type": "g4-standard-48",
   "default_model": "stewartpark/qwen3.5",
   "context_length": 262144,
-  "kv_cache_type": "q8_0",
+  "kv_cache_type": "bf16",
   "num_instances": 2,
   "num_parallel": 1,
   "idle_timeout": 600

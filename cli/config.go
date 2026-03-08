@@ -135,7 +135,7 @@ func applyDefaults() {
 		cfg.ListenAddr = "127.0.0.1"
 	}
 	if cfg.KvCacheType == "" {
-		cfg.KvCacheType = "q8_0"
+		cfg.KvCacheType = "bf16"
 	}
 	if cfg.NumBatch == 0 {
 		cfg.NumBatch = 1024
