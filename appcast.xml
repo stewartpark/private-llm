@@ -6,6 +6,16 @@
         <language>en</language>
         <!-- Latest release -->
         <item>
+            <title>Version 0.0.1</title>
+            <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1</link>
+            <sparkle:version>45</sparkle:version>
+            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <pubDate>Mon, 09 Mar 2026 05:46:58 +0000</pubDate>
+            <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.1/Private-LLM.dmg" length="0" type="application/octet-stream" />
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+        </item>
+        <!-- Previous releases -->
+        <item>
             <title>Version 0.0.1-rc44</title>
             <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1-rc44</link>
             <sparkle:version>44</sparkle:version>
