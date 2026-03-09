@@ -101,6 +101,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 	ctx := r.Context()
 
+	log.Printf("[proxy] %s %s", r.Method, r.URL.Path)
+
 	// Lazily trigger VM boot on first request (no-op if already running).
 	ops.EnsureSetup()
 
@@ -131,6 +133,13 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Fan-out /api/ps across all backends and merge results.
 	if r.URL.Path == "/api/ps" {
 		fanOutPS(ctx, w, client, ip, internalToken)
+		return
+	}
+
+	// Only generation endpoints go through the termination-aware writer and
+	// token counting. Everything else is passed through directly.
+	if !isGenerationEndpoint(r.URL.Path) {
+		passThroughStreaming(ctx, w, r, client, ip, internalToken)
 		return
 	}
 
@@ -477,6 +486,82 @@ func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, i
 	if err := json.NewEncoder(w).Encode(psResponse{Models: merged}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+// isGenerationEndpoint returns true for endpoints that produce LLM output
+// and should go through the termination-aware writer with token counting.
+func isGenerationEndpoint(path string) bool {
+	switch path {
+	case "/api/generate", "/api/chat",
+		"/v1/chat/completions",
+		"/v1/messages",
+		"/v1/responses":
+		return true
+	}
+	return false
+}
+
+// passThroughStreaming forwards a request to backend 1 and streams the response
+// back chunk-by-chunk with flushing. No client timeout so long operations like
+// push/pull can complete.
+func passThroughStreaming(ctx context.Context, w http.ResponseWriter, r *http.Request, client *http.Client, ip, token string) {
+	// Stream request body directly — don't buffer (blobs can be multi-GB).
+	body := r.Body
+
+	endpoint := fmt.Sprintf("https://%s:8080/backend/1%s", ip, r.URL.Path)
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
+	}
+
+	// No timeout — push/pull can take a very long time for large models.
+	noTimeoutClient := &http.Client{
+		Transport: client.Transport,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, endpoint, body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for key, values := range r.Header {
+		if key == "Authorization" {
+			continue
+		}
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Host = "private-llm-server"
+
+	resp, err := noTimeoutClient.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	flusher, hasFlusher := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			_, _ = w.Write(buf[:n])
+			if hasFlusher {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			break
+		}
 	}
 }
 
