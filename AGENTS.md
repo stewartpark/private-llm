@@ -512,7 +512,12 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 
 ## Release Process
 
+### Version Management
+
+**Important**: `cli/version.go` contains `var version = "dev"` by default. The actual version is injected during the release/build pipeline via linker flags (`-ldflags "-X main.version=0.0.1"`). Do not modify this file manually.
+
 ### Find Current Version
+
 ```bash
 # List all tags sorted by version
 git tag -l | sort -V | tail -5
@@ -522,6 +527,7 @@ git describe --tags $(git rev-list --tags --max-count=1)
 ```
 
 ### Create RC Release
+
 ```bash
 # Increment RC number (e.g., rc44 → rc45)
 git tag v0.0.1-rc45
@@ -533,6 +539,22 @@ vim appcast.xml  # Add entry for v0.0.1-rc45
 # Commit and push appcast changes
 git add appcast.xml
 git commit -m "release: update appcast for v0.0.1-rc45"
+git push origin main
+```
+
+### Create Stable Release
+
+```bash
+# Create stable tag (no rc suffix)
+git tag v0.0.1
+git push origin v0.0.1
+
+# Update appcast.xml with stable release entry
+vim appcast.xml  # Add entry for v0.0.1, set sparkle:version to next number
+
+# Commit and push appcast changes
+git add appcast.xml
+git commit -m "release: v0.0.1 stable release"
 git push origin main
 ```
 
