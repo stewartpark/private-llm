@@ -101,8 +101,6 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 	ctx := r.Context()
 
-	log.Printf("[proxy] %s %s", r.Method, r.URL.Path)
-
 	// Lazily trigger VM boot on first request (no-op if already running).
 	ops.EnsureSetup()
 
