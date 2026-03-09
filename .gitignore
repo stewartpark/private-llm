@@ -26,3 +26,7 @@ app/Packages/Sparkle/Sparkle.xcframework.zip
 
 # Frameworks (downloaded by SPM)
 app/Resources/Sparkle.framework
+
+# Test coverage
+cover.out
+*_test.coverprofile
