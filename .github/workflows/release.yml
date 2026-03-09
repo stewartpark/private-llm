@@ -126,49 +126,18 @@ jobs:
         run: |
           IDENTITY="Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)"
 
-          # Sign bundled CLI tools
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Resources/private-llm"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Resources/private-llm"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Resources/pulumi"
 
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Resources/pulumi"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
 
-          # Sign Sparkle framework internals (deepest first)
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/Frameworks/Sparkle.framework"
-
-          # Sign main binary and app bundle
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
-
-          codesign --force --options runtime \
-            --sign "$IDENTITY" --timestamp \
-            "bin/Private LLM.app"
-
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app/Contents/MacOS/PrivateLLM"
+          codesign --force --options runtime --sign "$IDENTITY" --timestamp "bin/Private LLM.app"
           codesign -dvv "bin/Private LLM.app"
 
       - name: Create DMG
@@ -188,9 +157,7 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          codesign --force --options runtime \
-            --sign "Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)" \
-            --timestamp "bin/Private-LLM.dmg"
+          codesign --force --options runtime --sign "Developer ID Application: Ju-yeong Park ($APPLE_TEAM_ID)" --timestamp "bin/Private-LLM.dmg"
 
       - name: Notarize DMG
         env:
@@ -203,7 +170,6 @@ jobs:
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 20m || {
-              # Fetch the notarization log on failure
               SUBMISSION_ID=$(xcrun notarytool history \
                 --apple-id "$APPLE_ID" \
                 --password "$APPLE_ID_PASSWORD" \
@@ -224,6 +190,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.ref_name }}" bin/Private-LLM.dmg
+
+      - name: Get release info for appcast
+        id: release_info
+        run: |
+          DMG_SIZE=$(gh release view "${{ github.ref_name }}" --json assets | jq '.assets[] | select(.name=="Private-LLM.dmg") | .size')
+          COMMIT_DATE=$(git log -1 --format=%ci "${{ github.ref_name }}")
+          RFC_DATE=$(TZ=UTC date -d "$COMMIT_DATE" +"%a, %d %b %Y %H:%M:%S +0000")
+
+          echo "DMG_SIZE=$DMG_SIZE" >> $GITHUB_OUTPUT
+          echo "RFC_DATE=$RFC_DATE" >> $GITHUB_OUTPUT
+
+      - name: Update appcast.xml
+        env:
+          DMG_SIZE: ${{ steps.release_info.outputs.DMG_SIZE }}
+          COMMIT_DATE: ${{ steps.release_info.outputs.RFC_DATE }}
+          VERSION: ${{ github.ref_name }}
+        run: python3 scripts/update_appcast.py
+
+      - name: Commit appcast.xml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions@github.com"
+          git add appcast.xml
+          git commit -m "release: update appcast for ${{ github.ref_name }}" || echo "No changes to commit"
+          git push origin main
 
       - name: Cleanup keychain
         if: always()

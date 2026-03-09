@@ -510,6 +510,36 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 
 ---
 
+## Release Process
+
+### Find Current Version
+```bash
+# List all tags sorted by version
+git tag -l | sort -V | tail -5
+
+# Get most recent tag
+git describe --tags $(git rev-list --tags --max-count=1)
+```
+
+### Create RC Release
+```bash
+# Increment RC number (e.g., rc44 → rc45)
+git tag v0.0.1-rc45
+git push origin v0.0.1-rc45
+
+# Update appcast.xml with new release info
+vim appcast.xml  # Add entry for v0.0.1-rc45
+
+# Commit and push appcast changes
+git add appcast.xml
+git commit -m "release: update appcast for v0.0.1-rc45"
+git push origin main
+```
+
+### See UPDATER.md for detailed macOS auto-updater maintenance.
+
+---
+
 ## Contributing
 
 1. Read `AGENTS.md` before making changes
@@ -520,4 +550,4 @@ curl -k https://<vm-ip>:8080/api/tags  # Only works after proxy starts
 
 ---
 
-*Last updated: 2026-03-05 - Added macOS auto-updater (Sparkle) integration
+*Last updated: 2026-03-08 - Added release process docs
