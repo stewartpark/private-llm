@@ -5,6 +5,8 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
+SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+
 
 def main():
     dmg_size = os.environ.get("DMG_SIZE")
@@ -18,11 +20,22 @@ def main():
 
     dmg_size = int(dmg_size)
     version_no_v = version.lstrip("v")
-    build_num = "".join(c for c in version_no_v if c.isdigit())
+
+    # Preserve sparkle: prefix (ElementTree rewrites it to ns0: otherwise)
+    ET.register_namespace("sparkle", SPARKLE_NS)
 
     tree = ET.parse("appcast.xml")
     root = tree.getroot()
     channel = root.find("channel")
+
+    # Build number must be monotonically increasing for Sparkle updates.
+    # Find the highest existing build number and increment.
+    max_build = 0
+    for existing in channel.findall("item"):
+        v = existing.find(f"{{{SPARKLE_NS}}}version")
+        if v is not None and v.text and v.text.isdigit():
+            max_build = max(max_build, int(v.text))
+    build_num = str(max_build + 1)
 
     item = ET.SubElement(channel, "item")
 
@@ -32,14 +45,10 @@ def main():
     link = ET.SubElement(item, "link")
     link.text = f"https://github.com/stewartpark/private-llm/releases/tag/{version}"
 
-    sparkle_version = ET.SubElement(
-        item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version"
-    )
+    sparkle_version = ET.SubElement(item, f"{{{SPARKLE_NS}}}version")
     sparkle_version.text = build_num
 
-    short_version = ET.SubElement(
-        item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString"
-    )
+    short_version = ET.SubElement(item, f"{{{SPARKLE_NS}}}shortVersionString")
     short_version.text = version_no_v
 
     pub_date = ET.SubElement(item, "pubDate")
@@ -53,12 +62,10 @@ def main():
     enclosure.set("length", str(dmg_size))
     enclosure.set("type", "application/octet-stream")
 
-    min_sys = ET.SubElement(
-        item,
-        "{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion",
-    )
+    min_sys = ET.SubElement(item, f"{{{SPARKLE_NS}}}minimumSystemVersion")
     min_sys.text = "13.0"
 
+    ET.indent(tree, space="    ")
     tree.write("appcast.xml", encoding="unicode", xml_declaration=True)
 
 
