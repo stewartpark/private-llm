@@ -214,6 +214,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions@github.com"
+          cp appcast.xml /tmp/appcast.xml
+          git checkout main
+          cp /tmp/appcast.xml appcast.xml
           git add appcast.xml
           git commit -m "release: update appcast for ${{ github.ref_name }}" || echo "No changes to commit"
           git push origin main
