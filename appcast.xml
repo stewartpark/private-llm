@@ -1,28 +1,28 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Private LLM Changelog</title>
         <description>Most recent changes with links to updates.</description>
         <language>en</language>
-        <!-- Latest release -->
+        
         <item>
             <title>Version 0.0.1</title>
             <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1</link>
-            <sparkle:version>45</sparkle:version>
-            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <ns0:version>45</ns0:version>
+            <ns0:shortVersionString>0.0.1</ns0:shortVersionString>
             <pubDate>Mon, 09 Mar 2026 05:46:58 +0000</pubDate>
             <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.1/Private-LLM.dmg" length="0" type="application/octet-stream" />
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <ns0:minimumSystemVersion>13.0</ns0:minimumSystemVersion>
         </item>
-        <!-- Previous releases -->
+        
         <item>
             <title>Version 0.0.1-rc44</title>
             <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1-rc44</link>
-            <sparkle:version>44</sparkle:version>
-            <sparkle:shortVersionString>0.0.1-rc44</sparkle:shortVersionString>
+            <ns0:version>44</ns0:version>
+            <ns0:shortVersionString>0.0.1-rc44</ns0:shortVersionString>
             <pubDate>Sun, 08 Mar 2026 18:06:19 +0000</pubDate>
             <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.1-rc44/Private-LLM.dmg" length="0" type="application/octet-stream" />
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <ns0:minimumSystemVersion>13.0</ns0:minimumSystemVersion>
         </item>
-    </channel>
+    <item><title>Version 0.0.2-rc1</title><link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.2-rc1</link><ns0:version>0021</ns0:version><ns0:shortVersionString>0.0.2-rc1</ns0:shortVersionString><pubDate>Wed, 11 Mar 2026 05:49:06 +0000</pubDate><enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.2-rc1/Private-LLM.dmg" length="60510690" type="application/octet-stream" /><ns0:minimumSystemVersion>13.0</ns0:minimumSystemVersion></item></channel>
 </rss>
