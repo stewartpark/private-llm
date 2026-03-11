@@ -4,7 +4,6 @@
         <title>Private LLM Changelog</title>
         <description>Most recent changes with links to updates.</description>
         <language>en</language>
-
         <item>
             <title>Version 0.0.1</title>
             <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.1</link>
@@ -12,6 +11,15 @@
             <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
             <pubDate>Mon, 09 Mar 2026 05:46:58 +0000</pubDate>
             <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.1/Private-LLM.dmg" length="0" type="application/octet-stream" />
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+        </item>
+        <item>
+            <title>Version 0.0.2-rc1</title>
+            <link>https://github.com/stewartpark/private-llm/releases/tag/v0.0.2-rc1</link>
+            <sparkle:version>46</sparkle:version>
+            <sparkle:shortVersionString>0.0.2-rc1</sparkle:shortVersionString>
+            <pubDate>Wed, 11 Mar 2026 06:14:16 +0000</pubDate>
+            <enclosure url="https://github.com/stewartpark/private-llm/releases/download/v0.0.2-rc1/Private-LLM.dmg" length="60510710" type="application/octet-stream" />
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
         </item>
     </channel>
