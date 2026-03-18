@@ -4,11 +4,11 @@ package common
 type APIStyle int
 
 const (
-	StyleUnknown       APIStyle = iota
-	StyleOllama                    // /api/generate, /api/chat
-	StyleOpenAIChat                // /v1/chat/completions  
-	StyleAnthropic                 // /v1/messages
-	StyleOpenAIResponses           // /v1/responses
+	StyleUnknown         APIStyle = iota
+	StyleOllama                      // Deprecated: kept for backward compat in tests
+	StyleOpenAIChat                  // /v1/chat/completions
+	StyleAnthropic                   // /v1/messages
+	StyleOpenAIResponses             // /v1/responses
 )
 
 // ContentType represents the type of content in a response stream.

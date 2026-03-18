@@ -21,13 +21,10 @@ type Config struct {
 	Network       string `json:"network"`
 	Region        string `json:"region"`
 	MachineType   string `json:"machine_type"`
-	DefaultModel  string `json:"default_model"`
-	ContextLength int    `json:"context_length"`
-	KvCacheType   string `json:"kv_cache_type"`
-	NumBatch      int    `json:"num_batch"`
-	NumInstances  int    `json:"num_instances"`
-	NumParallel   int    `json:"num_parallel"`
-	IdleTimeout   int    `json:"idle_timeout"`
+	Model               string  `json:"model"`
+	ContextLength       int     `json:"context_length"`
+	GPUMemoryUtilization float64 `json:"gpu_memory_utilization"`
+	IdleTimeout         int     `json:"idle_timeout"`
 	SubnetCIDR    string `json:"subnet_cidr"`
 	Subnet        string `json:"subnet"`
 	DisableHSM    bool   `json:"disable_hsm"`
@@ -107,20 +104,14 @@ func applyDefaults() {
 	if cfg.MachineType == "" {
 		cfg.MachineType = "g4-standard-48"
 	}
-	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = "stewartpark/qwen3.5"
+	if cfg.Model == "" {
+		cfg.Model = "unsloth/Qwen3.5-27B"
 	}
 	if cfg.ContextLength == 0 {
 		cfg.ContextLength = 262144
 	}
-	if cfg.NumInstances < 1 || cfg.NumInstances == 0 {
-		cfg.NumInstances = 1
-	}
-	if cfg.NumInstances > 4 {
-		cfg.NumInstances = 4
-	}
-	if cfg.NumParallel == 0 {
-		cfg.NumParallel = 1
+	if cfg.GPUMemoryUtilization == 0 {
+		cfg.GPUMemoryUtilization = 0.95
 	}
 	if cfg.IdleTimeout == 0 {
 		cfg.IdleTimeout = 300
@@ -133,12 +124,6 @@ func applyDefaults() {
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1"
-	}
-	if cfg.KvCacheType == "" {
-		cfg.KvCacheType = "bf16"
-	}
-	if cfg.NumBatch == 0 {
-		cfg.NumBatch = 1024
 	}
 }
 

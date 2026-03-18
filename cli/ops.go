@@ -118,7 +118,7 @@ func (o *InfraOps) handleAction(ctx context.Context, action tui.Action) {
 }
 
 // doSetup verifies the VM is running; if stopped it re-runs the full startup:
-// rotate certs, start VM, wait for Ollama, open gate.
+// rotate certs, start VM, wait for vLLM, open gate.
 func (o *InfraOps) doSetup(ctx context.Context) {
 	// If we have a cached IP, verify the VM is still running
 	if vmIP != "" {

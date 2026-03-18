@@ -23,7 +23,6 @@ var (
 	proxyReady      atomic.Bool
 	lastRequestTime time.Time
 	lastRequestMu   sync.RWMutex
-	assigner        *backendAssigner // initialized in serve with cfg.NumInstances
 )
 
 // Resettable channel gate: closed channel = gate open (requests pass),
@@ -128,12 +127,6 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Fan-out /api/ps across all backends and merge results.
-	if r.URL.Path == "/api/ps" {
-		fanOutPS(ctx, w, client, ip, internalToken)
-		return
-	}
-
 	// Only generation endpoints go through the termination-aware writer and
 	// token counting. Everything else is passed through directly.
 	if !isGenerationEndpoint(r.URL.Path) {
@@ -144,7 +137,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// Buffer request body so we can peek at "model" and "stream", and replay on retries.
 	var reqBody []byte
 	var modelName string
-	isStreaming := true // default: streaming (Ollama defaults to true)
+	isStreaming := true // default: streaming
 	if r.Body != nil {
 		reqBody, err = io.ReadAll(r.Body)
 		if err != nil {
@@ -162,18 +155,22 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Session-aware backend selection for KV cache affinity
-	backend := assigner.Acquire(reqBody)
-	defer assigner.Release(backend)
+	// Translate Anthropic requests to OpenAI format for vLLM
+	targetPath := r.URL.Path
+	var anthropicTranslation bool
+	if r.URL.Path == "/v1/messages" {
+		targetPath = "/v1/chat/completions"
+		anthropicTranslation = true
+		reqBody = translateAnthropicRequest(reqBody)
+	}
 
-	// Path-based routing: always use /backend/N prefix for deterministic routing
-	var endpoint string
-	endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
+	// Direct routing to single vLLM instance
+	endpoint := fmt.Sprintf("https://%s:8080%s", ip, targetPath)
 	if r.URL.RawQuery != "" {
 		endpoint += "?" + r.URL.RawQuery
 	}
 
-	// Retry loop for 502s (Caddy up, Ollama not ready) and connection errors.
+	// Retry loop for 502s (Caddy up, vLLM not ready) and connection errors.
 	var resp *http.Response
 	var upstreamStart time.Time
 	maxRetries := 12
@@ -209,7 +206,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				// Re-read state after recovery
 				ip = getCachedVMIP()
-				endpoint = fmt.Sprintf("https://%s:8080/backend/%d%s", ip, backend, r.URL.Path)
+				endpoint = fmt.Sprintf("https://%s:8080%s", ip, targetPath)
 				if r.URL.RawQuery != "" {
 					endpoint += "?" + r.URL.RawQuery
 				}
@@ -230,12 +227,12 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 		if resp.StatusCode == http.StatusBadGateway {
 			_ = resp.Body.Close()
-			log.Printf("[proxy] 502 (attempt %d/%d), Ollama not ready, retrying...", attempt+1, maxRetries)
+			log.Printf("[proxy] 502 (attempt %d/%d), vLLM not ready, retrying...", attempt+1, maxRetries)
 			if attempt < maxRetries-1 {
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			http.Error(w, "Ollama service not ready after retries", http.StatusBadGateway)
+			http.Error(w, "vLLM service not ready after retries", http.StatusBadGateway)
 			return
 		}
 
@@ -249,11 +246,28 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(key, value)
 		}
 	}
+	// For Anthropic streaming translations, override content type
+	if anthropicTranslation && isStreaming {
+		w.Header().Set("Content-Type", "text/event-stream")
+	}
 	w.WriteHeader(resp.StatusCode)
+
+	// For Anthropic streaming translations, wrap the ResponseWriter to translate
+	// OpenAI SSE → Anthropic SSE on write. The internal pipeline (token parser,
+	// interceptor) sees raw OpenAI format; the client sees Anthropic format.
+	clientWriter := http.ResponseWriter(w)
+	if anthropicTranslation && isStreaming {
+		clientWriter = newAnthropicTranslatingWriter(w)
+	}
 
 	// Token parser — counts tokens from each streamed chunk in real time.
 	// Runs async so parsing never blocks the proxy write path.
-	tp := newTokenParser(r.URL.Path)
+	// For Anthropic requests translated to OpenAI, parse as OpenAI format.
+	tokenPath := r.URL.Path
+	if anthropicTranslation {
+		tokenPath = "/v1/chat/completions" //nolint:gosec // G101 false positive: this is a URL path, not a credential
+	}
+	tp := newTokenParser(tokenPath)
 	tp.upstreamStartNano.Store(upstreamStart.UnixNano())
 
 	// Setup log callback for interceptors
@@ -321,7 +335,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		// Termination-aware streaming: stream content to client immediately, but hold
 		// back termination signals. After upstream ends, check if premature. If so,
 		// discard held termination and make a continuation request. Otherwise release it.
-		flusher, hasFlusher := w.(http.Flusher)
+		flusher, hasFlusher := clientWriter.(http.Flusher)
 
 		for attempt := range maxContinuations + 1 {
 			currentResp := resp
@@ -332,7 +346,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			tw := newTerminationAwareWriter(w, flusher, hasFlusher, tp.style, feedCh, feedSync, attempt > 0)
+			tw := newTerminationAwareWriter(clientWriter, flusher, hasFlusher, tp.style, feedCh, feedSync, attempt > 0)
 			tw.StreamResponse(currentResp.Body)
 			_ = currentResp.Body.Close()
 
@@ -392,6 +406,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if finalBody != nil {
+			if anthropicTranslation {
+				finalBody = translateAnthropicNonStreamingResponse(finalBody)
+			}
 			_, _ = w.Write(finalBody)
 		}
 	}
@@ -426,73 +443,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// fanOutPS queries /api/ps on all backends concurrently and merges the results.
-func fanOutPS(ctx context.Context, w http.ResponseWriter, client *http.Client, ip, token string) {
-	type psResponse struct {
-		Models []json.RawMessage `json:"models"`
-	}
-
-	type result struct {
-		models []json.RawMessage
-		err    error
-	}
-
-	n := assigner.numInstances
-	results := make([]result, n)
-	var wg sync.WaitGroup
-	wg.Add(n)
-
-	for i := range n {
-		go func(backend int) {
-			defer wg.Done()
-			endpoint := fmt.Sprintf("https://%s:8080/backend/%d/api/ps", ip, backend+1)
-			req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-			if err != nil {
-				results[backend].err = err
-				return
-			}
-			req.Header.Set("Authorization", "Bearer "+token)
-			req.Host = "private-llm-server"
-
-			resp, err := client.Do(req)
-			if err != nil {
-				results[backend].err = err
-				return
-			}
-			defer func() { _ = resp.Body.Close() }()
-
-			var ps psResponse
-			if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
-				results[backend].err = err
-				return
-			}
-			results[backend].models = ps.Models
-		}(i)
-	}
-	wg.Wait()
-
-	var merged []json.RawMessage
-	for i, r := range results {
-		if r.err != nil {
-			log.Printf("[proxy] /api/ps fan-out backend %d failed: %v", i+1, r.err)
-			continue
-		}
-		merged = append(merged, r.models...)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(psResponse{Models: merged}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
 // isGenerationEndpoint returns true for endpoints that produce LLM output
 // and should go through the termination-aware writer with token counting.
 func isGenerationEndpoint(path string) bool {
 	switch path {
-	case "/api/generate", "/api/chat",
-		"/v1/chat/completions",
+	case "/v1/chat/completions",
 		"/v1/messages",
 		"/v1/responses":
 		return true
@@ -507,7 +462,7 @@ func passThroughStreaming(ctx context.Context, w http.ResponseWriter, r *http.Re
 	// Stream request body directly — don't buffer (blobs can be multi-GB).
 	body := r.Body
 
-	endpoint := fmt.Sprintf("https://%s:8080/backend/1%s", ip, r.URL.Path)
+	endpoint := fmt.Sprintf("https://%s:8080%s", ip, r.URL.Path)
 	if r.URL.RawQuery != "" {
 		endpoint += "?" + r.URL.RawQuery
 	}
@@ -567,7 +522,7 @@ func passThroughStreaming(ctx context.Context, w http.ResponseWriter, r *http.Re
 // and a user "Continue." message appended. Returns nil if the API style doesn't support it.
 func buildContinuationRequest(originalBody []byte, assistantOutput string, style apiStyle) []byte {
 	// Only message-based APIs support continuation
-	if style != StyleOllama && style != StyleOpenAIChat && style != StyleAnthropic {
+	if style != StyleOpenAIChat && style != StyleAnthropic {
 		return nil
 	}
 
@@ -630,8 +585,6 @@ func makeContinuationRequest(ctx context.Context, origReq *http.Request, client 
 // appending the continuation's content to the original response.
 func mergeNonStreamingResponse(first, second []byte, style apiStyle) []byte {
 	switch style {
-	case StyleOllama:
-		return mergeOllamaResponse(first, second)
 	case StyleOpenAIChat:
 		return mergeOpenAIChatResponse(first, second)
 	case StyleAnthropic:
@@ -639,41 +592,6 @@ func mergeNonStreamingResponse(first, second []byte, style apiStyle) []byte {
 	default:
 		return first
 	}
-}
-
-func mergeOllamaResponse(first, second []byte) []byte {
-	var a, b map[string]any
-	if json.Unmarshal(first, &a) != nil || json.Unmarshal(second, &b) != nil {
-		return first
-	}
-
-	// Merge message.content (for /api/chat)
-	aMsg, aOK := a["message"].(map[string]any)
-	bMsg, bOK := b["message"].(map[string]any)
-	if aOK && bOK {
-		aContent, _ := aMsg["content"].(string)
-		bContent, _ := bMsg["content"].(string)
-		aMsg["content"] = aContent + bContent
-
-		// Merge tool_calls arrays
-		if bTC, ok := bMsg["tool_calls"].([]any); ok && len(bTC) > 0 {
-			aTC, _ := aMsg["tool_calls"].([]any)
-			aMsg["tool_calls"] = append(aTC, bTC...)
-		}
-	}
-
-	// Merge response (for /api/generate)
-	if aResp, ok := a["response"].(string); ok {
-		if bResp, ok := b["response"].(string); ok {
-			a["response"] = aResp + bResp
-		}
-	}
-
-	merged, err := json.Marshal(a)
-	if err != nil {
-		return first
-	}
-	return merged
 }
 
 func mergeOpenAIChatResponse(first, second []byte) []byte {
@@ -847,14 +765,6 @@ func (tw *terminationAwareWriter) handleLine(line string) {
 
 func (tw *terminationAwareWriter) isTerminationLine(line string) bool {
 	switch tw.style {
-	case StyleOllama:
-		// Ollama: JSON line with "done": true
-		if strings.Contains(line, `"done"`) {
-			var obj struct{ Done bool }
-			if json.Unmarshal([]byte(line), &obj) == nil && obj.Done {
-				return true
-			}
-		}
 	case StyleOpenAIChat:
 		return strings.TrimSpace(line) == "data: [DONE]"
 	case StyleAnthropic:

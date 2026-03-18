@@ -21,13 +21,12 @@ type apiStyle = APIStyle // Legacy compatibility alias
 
 const (
 	StyleUnknown         = common.StyleUnknown
-	StyleOllama          = common.StyleOllama
+	StyleOllama          = common.StyleOllama // Deprecated: kept for backward compat
 	StyleOpenAIChat      = common.StyleOpenAIChat
 	StyleAnthropic       = common.StyleAnthropic
 	StyleOpenAIResponses = common.StyleOpenAIResponses
 
 	styleUnknown         = StyleUnknown
-	styleOllama          = StyleOllama
 	styleOpenAIChat      = StyleOpenAIChat
 	styleAnthropic       = StyleAnthropic
 	styleOpenAIResponses = StyleOpenAIResponses
@@ -40,8 +39,6 @@ func GetTokenCounts() (int64, int64) {
 
 func detectAPIStyle(path string) APIStyle {
 	switch {
-	case strings.HasPrefix(path, "/api/generate"), strings.HasPrefix(path, "/api/chat"):
-		return styleOllama
 	case strings.HasPrefix(path, "/v1/chat/completions"):
 		return styleOpenAIChat
 	case strings.HasPrefix(path, "/v1/messages"):
@@ -167,53 +164,12 @@ func (p *tokenParser) LiveOutputRate() float64 {
 
 func (p *tokenParser) processLine(line string) {
 	switch p.style {
-	case styleOllama:
-		p.parseOllamaLine(line)
 	case styleOpenAIChat:
 		p.parseOpenAIChatLine(line)
 	case styleAnthropic:
 		p.parseAnthropicLine(line)
 	case styleOpenAIResponses:
 		p.parseOpenAIResponsesLine(line)
-	}
-}
-
-// ── Ollama native (/api/generate, /api/chat) ─────────────────────
-// Each line is a JSON object. Non-done lines with content = 1 output token.
-// The done line has prompt_eval_count for input tokens.
-func (p *tokenParser) parseOllamaLine(line string) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return
-	}
-
-	var obj struct {
-		Done            bool                      `json:"done"`
-		Response        string                    `json:"response"` // /api/generate
-		Message         *struct{ Content string } `json:"message"`  // /api/chat
-		PromptEvalCount int64                     `json:"prompt_eval_count"`
-	}
-	if err := json.Unmarshal([]byte(line), &obj); err != nil {
-		return
-	}
-
-	if obj.Done {
-		// Final line: grab input token count (only first done line — continuations send more)
-		if obj.PromptEvalCount > 0 && p.input == 0 {
-			p.input = obj.PromptEvalCount
-			totalInputTokens.Add(obj.PromptEvalCount)
-		}
-		// Don't count output tokens from final line — already counted per-chunk
-		return
-	}
-
-	// Each non-done line with content = 1 output token
-	hasContent := obj.Response != ""
-	if !hasContent && obj.Message != nil {
-		hasContent = obj.Message.Content != ""
-	}
-	if hasContent {
-		p.countOutput()
 	}
 }
 

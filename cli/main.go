@@ -181,12 +181,9 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 		Provider:      "GCP",
 		MachineType:   cfg.MachineType,
 		Zone:          cfg.Zone,
-		ModelName:     cfg.DefaultModel,
+		ModelName:     cfg.Model,
 		ContextLength: cfg.ContextLength,
 	})
-
-	// Initialize backend assigner for KV cache affinity
-	assigner = newBackendAssigner(cfg.NumInstances)
 
 	// Create HTTP server
 	mux := http.NewServeMux()
@@ -196,7 +193,7 @@ func runServe(ctx context.Context, cancel context.CancelFunc, port int, allowAll
 	// Check if port is available before starting
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		tuiProg.Done(fmt.Errorf("port %d already in use — stop Ollama first", port))
+		tuiProg.Done(fmt.Errorf("port %d already in use", port))
 		<-tuiDone
 		if exitErr := tuiProg.ExitError(); exitErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr)
@@ -309,8 +306,8 @@ func sendStatus(ctx context.Context) {
 				}
 			}
 			ip := getExternalIP(nil)
-			if ip != "" && probeOllama(ctx, ip) {
-				// Ollama is already serving — make proxy functional immediately
+			if ip != "" && probeVLLM(ctx, ip) {
+				// vLLM is already serving — make proxy functional immediately
 				vmIP = ip
 				proxyReady.Store(true)
 				openGate()
@@ -371,7 +368,7 @@ func runUp(ctx context.Context, args []string) {
 	pNetwork := fs.String("network", "", "VPC network name (default: private-llm)")
 	pRegion := fs.String("region", "", "GCP region (default: derived from zone)")
 	pMachineType := fs.String("machine-type", "", "VM machine type (default: g4-standard-48)")
-	pDefaultModel := fs.String("default-model", "", "Ollama model (default: stewartpark/qwen3.5)")
+	pModel := fs.String("model", "", "HuggingFace model (default: unsloth/Qwen3.5-27B)")
 	pContextLength := fs.Int("context-length", 0, "Context window size (default: 262144)")
 	pIdleTimeout := fs.Int("idle-timeout", 0, "Idle shutdown seconds (default: 300)")
 	pSubnetCIDR := fs.String("subnet-cidr", "", "Subnet CIDR (default: 10.10.0.0/24)")
@@ -405,8 +402,8 @@ func runUp(ctx context.Context, args []string) {
 	if *pMachineType != "" {
 		cfg.MachineType = *pMachineType
 	}
-	if *pDefaultModel != "" {
-		cfg.DefaultModel = *pDefaultModel
+	if *pModel != "" {
+		cfg.Model = *pModel
 	}
 	if *pContextLength != 0 {
 		cfg.ContextLength = *pContextLength
@@ -617,24 +614,21 @@ func runRotateCA(ctx context.Context) {
 
 func newInfraConfig() *infra.InfraConfig {
 	return &infra.InfraConfig{
-		ProjectID:     cfg.ProjectID,
-		Region:        cfg.Region,
-		Zone:          cfg.Zone,
-		VMName:        cfg.VMName,
-		Network:       cfg.Network,
-		MachineType:   cfg.MachineType,
-		DefaultModel:  cfg.DefaultModel,
-		ContextLength: cfg.ContextLength,
-		KvCacheType:   cfg.KvCacheType,
-		NumBatch:      cfg.NumBatch,
-		NumParallel:   cfg.NumParallel,
-		IdleTimeout:   cfg.IdleTimeout,
-		SubnetCIDR:    cfg.SubnetCIDR,
-		Subnet:        cfg.Subnet,
-		DisableHSM:    cfg.DisableHSM,
-		NumInstances:  cfg.NumInstances,
-		StartupScript: vmStartupScript,
-		Caddyfile:     caddyfileContent,
+		ProjectID:            cfg.ProjectID,
+		Region:               cfg.Region,
+		Zone:                 cfg.Zone,
+		VMName:               cfg.VMName,
+		Network:              cfg.Network,
+		MachineType:          cfg.MachineType,
+		Model:                cfg.Model,
+		ContextLength:        cfg.ContextLength,
+		GPUMemoryUtilization: cfg.GPUMemoryUtilization,
+		IdleTimeout:          cfg.IdleTimeout,
+		SubnetCIDR:           cfg.SubnetCIDR,
+		Subnet:               cfg.Subnet,
+		DisableHSM:           cfg.DisableHSM,
+		StartupScript:        vmStartupScript,
+		Caddyfile:            caddyfileContent,
 	}
 }
 

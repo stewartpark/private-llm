@@ -31,7 +31,7 @@ This guide documents all available configuration options for `agent.json`, which
 
 | Field | Type | Default | Description |
 |-------|------|-|------------|
-| `default_model` | string | `stewartpark/qwen3.5` | Model to pull and load on VM boot. |
+| `model` | string | `stewartpark/qwen3.5` | Model to pull and load on VM boot. |
 | `context_length` | int | `262144` | Context window size (tokens). |
 | `kv_cache_type` | string | `bf16` | KV cache type: `bf16`, `q8_0`, `q4_0`, or `f16`. Higher precision = more VRAM. |
 | `num_batch` | int | `1024` | Batch size for prompt processing (`OLLAMA_NUM_BATCH`). |
@@ -135,7 +135,7 @@ Zones are automatically filtered based on your selected machine type. Run `priva
   "project_id": "my-gcp-project",
   "zone": "us-central1-a",
   "machine_type": "g2-standard-4",
-  "default_model": "llama3.2:7b",
+  "model": "llama3.2:7b",
   "context_length": 65536,
   "num_instances": 1,
   "idle_timeout": 300
@@ -149,7 +149,7 @@ Zones are automatically filtered based on your selected machine type. Run `priva
   "project_id": "my-gcp-project",
   "zone": "us-central1-b",
   "machine_type": "g4-standard-48",
-  "default_model": "stewartpark/qwen3.5",
+  "model": "stewartpark/qwen3.5",
   "context_length": 262144,
   "kv_cache_type": "bf16",
   "num_instances": 2,
@@ -165,7 +165,7 @@ Zones are automatically filtered based on your selected machine type. Run `priva
   "project_id": "my-gcp-project",
   "zone": "us-central1-b",
   "machine_type": "g4-standard-96",
-  "default_model": "stewartpark/qwen3.5",
+  "model": "stewartpark/qwen3.5",
   "context_length": 262144,
   "num_instances": 4,
   "num_parallel": 1,

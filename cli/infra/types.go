@@ -15,16 +15,13 @@ type InfraConfig struct {
 	VMName        string
 	Network       string
 	MachineType   string
-	DefaultModel  string
-	ContextLength int
-	KvCacheType   string
-	NumBatch      int
-	NumParallel   int
-	IdleTimeout   int
-	SubnetCIDR    string
-	Subnet        string
-	NumInstances  int
-	DisableHSM    bool
+	Model                string
+	ContextLength        int
+	GPUMemoryUtilization float64
+	IdleTimeout          int
+	SubnetCIDR           string
+	Subnet               string
+	DisableHSM           bool
 	// Embedded content for VM metadata
 	StartupScript string
 	Caddyfile     string

@@ -31,12 +31,6 @@ func (t *toolCallInterceptor) Feed(chunk []byte, logCb LogCallback) ([]byte, err
 	line := string(chunk)
 
 	switch t.style {
-	case StyleOllama:
-		modified, count := t.processOllama(line)
-		if count > 0 && logCb != nil {
-			logCb(fmt.Sprintf("[interceptor] Extracted %d tool call(s) from thinking blocks", count))
-		}
-		return []byte(modified), nil
 	case StyleOpenAIChat:
 		modified, count := t.processOpenAIChat(line)
 		if count > 0 && logCb != nil {
@@ -54,63 +48,6 @@ func (t *toolCallInterceptor) ShouldContinue() bool {
 
 func (t *toolCallInterceptor) Reset() {
 	// No state to reset
-}
-
-func (t *toolCallInterceptor) processOllama(line string) (string, int) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return line, 0
-	}
-
-	var parts struct {
-		Done     bool   `json:"done"`
-		Response string `json:"response,omitempty"`
-		Message  *struct {
-			Content   string          `json:"content"`
-			ToolCalls json.RawMessage `json:"tool_calls"`
-		} `json:"message,omitempty"`
-	}
-
-	if err := json.Unmarshal([]byte(line), &parts); err != nil {
-		return line, 0
-	}
-
-	if parts.Done {
-		return line, 0
-	}
-
-	var content string
-	switch {
-	case parts.Response != "":
-		content = parts.Response
-	case parts.Message != nil && parts.Message.Content != "":
-		content = parts.Message.Content
-	default:
-		return line, 0
-	}
-
-	extracted, cleaned := t.extractFromThinking(content)
-	if len(extracted) == 0 {
-		return line, 0
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal([]byte(line), &result); err != nil {
-		return line, 0
-	}
-
-	switch {
-	case result["response"] != nil:
-		result["response"] = cleaned
-	case result["message"] != nil:
-		msg, ok := result["message"].(map[string]any)
-		if ok {
-			msg["content"] = cleaned
-		}
-	}
-
-	modified, _ := json.Marshal(result)
-	return string(modified), len(extracted)
 }
 
 func (t *toolCallInterceptor) processOpenAIChat(line string) (string, int) {

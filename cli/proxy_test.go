@@ -13,10 +13,6 @@ func TestIsGenerationEndpoint(t *testing.T) {
 		path     string
 		expected bool
 	}{
-		// Ollama native endpoints
-		{"/api/generate", true},
-		{"/api/chat", true},
-
 		// OpenAI-compatible endpoints
 		{"/v1/chat/completions", true},
 		{"/v1/responses", true},
@@ -25,20 +21,11 @@ func TestIsGenerationEndpoint(t *testing.T) {
 		{"/v1/messages", true},
 
 		// Non-generation endpoints (should go through pass-through)
-		{"/api/tags", false},
-		{"/api/pull", false},
-		{"/api/push", false},
-		{"/api/show", false},
-		{"/api/copy", false},
-		{"/api/delete", false},
-		{"/api/blobs/sha256:abc123", false},
-		{"/api/embed", false},
-		{"/api/embeddings", false},
 		{"/v1/models", false},
+		{"/health", false},
 
 		// Paths with query strings (should not match)
-		{"/api/tags?format=json", false},
-		{"/api/pull?name=llama2", false},
+		{"/v1/models?format=json", false},
 	}
 
 	for _, tt := range tests {
@@ -48,45 +35,6 @@ func TestIsGenerationEndpoint(t *testing.T) {
 				t.Errorf("isGenerationEndpoint(%q) = %v, want %v", tt.path, result, tt.expected)
 			}
 		})
-	}
-}
-
-func TestMergeOllamaResponse_Chat(t *testing.T) {
-	first := []byte(`{"message":{"content":"Hello "},"done":false}`)
-	second := []byte(`{"message":{"content":"world!"},"done":true}`)
-
-	merged := mergeOllamaResponse(first, second)
-
-	got := string(merged)
-	expectedContent := `"content":"Hello world!"`
-	if !containsSubstring(got, expectedContent) {
-		t.Errorf("mergeOllamaResponse chat: got %q, expected content to contain %q", got, expectedContent)
-	}
-}
-
-func TestMergeOllamaResponse_Generate(t *testing.T) {
-	first := []byte(`{"response":"Hello ","done":false}`)
-	second := []byte(`{"response":"world!","done":true}`)
-
-	merged := mergeOllamaResponse(first, second)
-
-	got := string(merged)
-	expectedResponse := `"response":"Hello world!"`
-	if !containsSubstring(got, expectedResponse) {
-		t.Errorf("mergeOllamaResponse generate: got %q, expected response to contain %q", got, expectedResponse)
-	}
-}
-
-func TestMergeOllamaResponse_ToolCalls(t *testing.T) {
-	first := []byte(`{"message":{"content":"I'll use a tool","tool_calls":[{"id":"1","function":{"name":"search"}}]}}`)
-	second := []byte(`{"message":{"tool_calls":[{"id":"2","function":{"name":"calculate"}}]}}`)
-
-	merged := mergeOllamaResponse(first, second)
-
-	got := string(merged)
-	// Should have both tool calls
-	if !containsSubstring(got, `"id":"1"`) || !containsSubstring(got, `"id":"2"`) {
-		t.Errorf("mergeOllamaResponse tool_calls: expected both calls in %q", got)
 	}
 }
 
@@ -158,27 +106,6 @@ func (t *testResponseWriter) WriteHeader(statusCode int) {
 	t.code = statusCode
 }
 
-func TestIsTerminationLine_Ollama(t *testing.T) {
-	tests := []struct {
-		line     string
-		expected bool
-	}{
-		{`{"done":true,"message":{}}`, true},
-		{`{"done": false,"message":{}}`, false},
-		{`{"done":false,"message":{}}`, false},
-		{`{"message":{"content":"hello"}}`, false},
-		{`{"done":true}`, true},
-	}
-
-	for _, tt := range tests {
-		tw := newTestTerminationWriter(common.StyleOllama)
-		result := tw.isTerminationLine(tt.line)
-		if result != tt.expected {
-			t.Errorf("isTerminationLine(Ollama, %q) = %v, want %v", tt.line, result, tt.expected)
-		}
-	}
-}
-
 func TestIsTerminationLine_OpenAIChat(t *testing.T) {
 	tests := []struct {
 		line     string
@@ -248,33 +175,12 @@ func TestIsEmptyOrEventOnly(t *testing.T) {
 		{"data: {}", false},
 	}
 
-	tw := newTestTerminationWriter(common.StyleOllama)
+	tw := newTestTerminationWriter(common.StyleOpenAIChat)
 	for _, tt := range tests {
 		result := tw.isEmptyOrEventOnly(tt.line)
 		if result != tt.expected {
 			t.Errorf("isEmptyOrEventOnly(%q) = %v, want %v", tt.line, result, tt.expected)
 		}
-	}
-}
-
-func TestMergeOllamaResponse_InvalidJSON(t *testing.T) {
-	first := []byte(`{"valid": true}`)
-	second := []byte(`{invalid json}`)
-
-	merged := mergeOllamaResponse(first, second)
-	if string(merged) != string(first) {
-		t.Error("mergeOllamaResponse should return first on invalid JSON")
-	}
-}
-
-func TestMergeOllamaResponse_MissingFields(t *testing.T) {
-	first := []byte(`{"message":{}}`) // no content field
-	second := []byte(`{"message":{"content":"world"}}`)
-
-	merged := mergeOllamaResponse(first, second)
-	got := string(merged)
-	if !containsSubstring(got, `"content":"world"`) {
-		t.Errorf("expected merged content in %q", got)
 	}
 }
 
@@ -318,38 +224,6 @@ func TestMergeAnthropicResponse_NonSliceContent(t *testing.T) {
 	}
 }
 
-func TestBuildContinuationRequest_OllamaChat(t *testing.T) {
-	original := []byte(`{"model":"qwen3.5","messages":[{"role":"user","content":"Hello"}]}`)
-	output := "Nice to meet you"
-
-	result := buildContinuationRequest(original, output, StyleOllama)
-	if result == nil {
-		t.Fatal("expected non-nil continuation request")
-	}
-
-	var req map[string]any
-	if err := json.Unmarshal(result, &req); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	messages, ok := req["messages"].([]any)
-	if !ok || len(messages) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(messages))
-	}
-
-	// Check assistant message was appended
-	assistant, ok := messages[1].(map[string]any)
-	if !ok || assistant["role"] != "assistant" || assistant["content"] != output {
-		t.Errorf("unexpected assistant message: %v", messages[1])
-	}
-
-	// Check Continue. user message was appended
-	user, ok := messages[2].(map[string]any)
-	if !ok || user["role"] != "user" || user["content"] != "Continue." {
-		t.Errorf("unexpected continue message: %v", messages[2])
-	}
-}
-
 func TestBuildContinuationRequest_OpenAIChat(t *testing.T) {
 	original := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"Hi"}]}`)
 	output := "Hello there"
@@ -390,22 +264,11 @@ func TestBuildContinuationRequest_Anthropic(t *testing.T) {
 	}
 }
 
-func TestBuildContinuationRequest_GenerateAPINotSupported(t *testing.T) {
-	// /api/generate doesn't have messages array — should return nil
-	original := []byte(`{"model":"llama2","prompt":"Hello"}`)
-	output := "World"
-
-	result := buildContinuationRequest(original, output, StyleOllama)
-	if result != nil {
-		t.Error("expected nil for /api/generate (no messages field)")
-	}
-}
-
 func TestBuildContinuationRequest_InvalidJSON(t *testing.T) {
 	original := []byte(`{not valid json}`)
 	output := "test"
 
-	result := buildContinuationRequest(original, output, StyleOllama)
+	result := buildContinuationRequest(original, output, StyleOpenAIChat)
 	if result != nil {
 		t.Error("expected nil for invalid JSON")
 	}
@@ -489,15 +352,5 @@ func TestIsPreambleLine_OpenAIResponses(t *testing.T) {
 	tw.lastEvent = ""
 	if !tw.isPreambleLine("event: response.output_item.added") {
 		t.Error("expected response.output_item.added to be preamble")
-	}
-}
-
-func TestIsPreambleLine_OllamaNoPreamble(t *testing.T) {
-	// Ollama doesn't have special preamble lines
-	tw := newTestTerminationWriter(common.StyleOllama)
-	tw.isCont = true
-
-	if tw.isPreambleLine(`{"message":{"content":"hello"}}`) {
-		t.Error("Ollama should not have preamble lines")
 	}
 }

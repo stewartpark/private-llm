@@ -400,18 +400,9 @@ func runInteractiveSetup(firstRun bool) {
 	cfg.Zone = promptSelect("Zone", zones, findOption(zones, zoneDefault, 0))
 
 	cfg.VMName = promptString("VM name", orDefault(cfg.VMName, "private-llm-vm"))
-	cfg.DefaultModel = promptString("Default (target) model", orDefault(cfg.DefaultModel, "stewartpark/qwen3.5"))
+	cfg.Model = promptString("Model (HuggingFace)", orDefault(cfg.Model, "unsloth/Qwen3.5-27B"))
 
 	cfg.ContextLength = promptInt("Context length", orDefaultInt(cfg.ContextLength, 262144))
-
-	kvCacheOptions := []string{"bf16", "q8_0", "q4_0", "f16"}
-	kvDefault := findOption(kvCacheOptions, orDefault(cfg.KvCacheType, "bf16"), 0)
-	cfg.KvCacheType = promptSelect("KV cache type", kvCacheOptions, kvDefault)
-
-	cfg.NumBatch = promptInt("Batch size (OLLAMA_NUM_BATCH)", orDefaultInt(cfg.NumBatch, 1024))
-	cfg.NumInstances = promptInt("Ollama instances (1-4, for concurrency)", orDefaultInt(cfg.NumInstances, 1))
-	cfg.NumInstances = max(1, min(4, cfg.NumInstances))
-	cfg.NumParallel = promptInt("Parallel requests (OLLAMA_NUM_PARALLEL)", orDefaultInt(cfg.NumParallel, 1))
 	cfg.IdleTimeout = promptInt("Idle timeout (seconds)", orDefaultInt(cfg.IdleTimeout, 300))
 
 	// ── Networking ───────────────────────

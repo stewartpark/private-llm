@@ -78,7 +78,7 @@ func isVMStopped(ctx context.Context) (bool, error) {
 	return status == "TERMINATED" || status == "STOPPED" || status == "SUSPENDED", nil
 }
 
-// ensureVMRunning starts the VM if it's not running and waits for Ollama to be ready.
+// ensureVMRunning starts the VM if it's not running and waits for vLLM to be ready.
 // Returns the VM's external IP.
 func ensureVMRunning(ctx context.Context) (string, error) {
 	log.Printf("[vm] ensuring VM running (project=%s, zone=%s, vm=%s)", cfg.ProjectID, cfg.Zone, cfg.VMName)
@@ -121,8 +121,8 @@ func ensureVMRunning(ctx context.Context) (string, error) {
 		if ip == "" {
 			return "", fmt.Errorf("VM running but no external IP (enable_external_ip must be true)")
 		}
-		log.Printf("[vm] VM running at %s, waiting for Ollama...", ip)
-		if err := waitForOllama(ctx, ip); err != nil {
+		log.Printf("[vm] VM running at %s, waiting for vLLM...", ip)
+		if err := waitForVLLM(ctx, ip); err != nil {
 			return "", err
 		}
 		return ip, nil
@@ -163,8 +163,8 @@ func ensureVMRunning(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("VM started but no external IP assigned")
 		}
 
-		log.Printf("[vm] VM started at %s, waiting for Ollama...", ip)
-		if err := waitForOllama(ctx, ip); err != nil {
+		log.Printf("[vm] VM started at %s, waiting for vLLM...", ip)
+		if err := waitForVLLM(ctx, ip); err != nil {
 			return "", err
 		}
 		return ip, nil
@@ -275,8 +275,8 @@ func deleteVM(ctx context.Context) error {
 	return fmt.Errorf("timeout waiting for VM deletion")
 }
 
-// probeOllama does a single health check against Ollama. Returns true if ready.
-func probeOllama(ctx context.Context, ip string) bool {
+// probeVLLM does a single health check against vLLM. Returns true if ready.
+func probeVLLM(ctx context.Context, ip string) bool {
 	tlsCfg, token, err := getTLSConfig(ctx)
 	if err != nil {
 		return false
@@ -285,7 +285,7 @@ func probeOllama(ctx context.Context, ip string) bool {
 		Timeout:   3 * time.Second,
 		Transport: &http.Transport{TLSClientConfig: tlsCfg},
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://%s:8080/api/tags", ip), nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://%s:8080/health", ip), nil)
 	req.Host = "private-llm-server"
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := client.Do(req)
@@ -296,8 +296,8 @@ func probeOllama(ctx context.Context, ip string) bool {
 	return resp.StatusCode < 500
 }
 
-// waitForOllama polls the Ollama health endpoint until it responds.
-func waitForOllama(ctx context.Context, ip string) error {
+// waitForVLLM polls the vLLM health endpoint until it responds.
+func waitForVLLM(ctx context.Context, ip string) error {
 	tlsCfg, token, err := getTLSConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load TLS config for health check: %w", err)
@@ -307,7 +307,7 @@ func waitForOllama(ctx context.Context, ip string) error {
 		Timeout:   5 * time.Second,
 		Transport: &http.Transport{TLSClientConfig: tlsCfg},
 	}
-	endpoint := fmt.Sprintf("https://%s:8080/api/tags", ip)
+	endpoint := fmt.Sprintf("https://%s:8080/health", ip)
 	log.Printf("[vm] polling %s", endpoint)
 
 	for i := 0; i < 60; i++ {
@@ -317,13 +317,13 @@ func waitForOllama(ctx context.Context, ip string) error {
 		resp, err := client.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
-			log.Printf("[vm] Ollama ready after %d attempts (status=%d)", i+1, resp.StatusCode)
+			log.Printf("[vm] vLLM ready after %d attempts (status=%d)", i+1, resp.StatusCode)
 			return nil
 		}
 		log.Printf("[vm] health check attempt %d: %v", i+1, err)
 		time.Sleep(5 * time.Second)
 	}
-	return fmt.Errorf("timeout waiting for Ollama")
+	return fmt.Errorf("timeout waiting for vLLM")
 }
 
 

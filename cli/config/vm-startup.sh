@@ -74,16 +74,11 @@ wait_for_apt_lock() {
 
 # Step 1: Install base packages
 if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
-    echo "[STEP 1] Installing base packages (gcsfuse, Caddy, Ollama, Cloud SDK, Ops Agent)..."
+    echo "[STEP 1] Installing base packages (Caddy, vLLM, Cloud SDK, Ops Agent)..."
 
     # Remove bullseye-backports (no longer available)
     sudo rm -f /etc/apt/sources.list.d/bullseye-backports.list
     sudo sed -i '/bullseye-backports/d' /etc/apt/sources.list
-
-    # Install gcsfuse repository (kept for potential future use)
-    export GCSFUSE_REPO=gcsfuse-$(lsb_release -c -s)
-    echo "deb [signed-by=/usr/share/keyrings/cloud.google.asc] https://packages.cloud.google.com/apt $GCSFUSE_REPO main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
-    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo tee /usr/share/keyrings/cloud.google.asc > /dev/null
 
     # Install Caddy
     sudo mkdir -p /usr/share/keyrings
@@ -109,13 +104,14 @@ if [ ! -f "$INSTALL_DIR/.step1-base-packages" ]; then
     sudo bash add-google-cloud-ops-agent-repo.sh --also-install
     rm -f add-google-cloud-ops-agent-repo.sh
 
-    # Install Ollama (output logged to prevent metadata runner buffer overflow)
-    if ! curl -fsSL https://ollama.com/install.sh | sh > /var/log/ollama-install.log 2>&1; then
-        echo "[STEP 1] ERROR: Ollama installation failed"
-        echo "[STEP 1] Last 100 lines of /var/log/ollama-install.log:"
-        tail -n 100 /var/log/ollama-install.log
+    # Install vLLM (the deep learning VM image already has Python + CUDA)
+    echo "[STEP 1] Installing vLLM..."
+    pip install vllm > /var/log/vllm-install.log 2>&1 || {
+        echo "[STEP 1] ERROR: vLLM installation failed"
+        echo "[STEP 1] Last 100 lines of /var/log/vllm-install.log:"
+        tail -n 100 /var/log/vllm-install.log
         exit 1
-    fi
+    }
 
     touch "$INSTALL_DIR/.step1-base-packages"
     echo "[STEP 1] Complete"
@@ -150,52 +146,14 @@ sudo chmod 644 /etc/caddy/certs/ca.crt
 # Fetch config from metadata
 INTERNAL_TOKEN=$(cat /tmp/internal-token)
 CONTEXT_LENGTH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/context-length)
-NUM_PARALLEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-parallel)
-NUM_PARALLEL=${NUM_PARALLEL:-1}
-NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
-NUM_INSTANCES=${NUM_INSTANCES:-2}
-KV_CACHE_TYPE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kv-cache-type)
-NUM_BATCH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-batch)
+MODEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
+GPU_MEMORY_UTILIZATION=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/gpu-memory-utilization)
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.95}
 
-# Auto-detect total GPU VRAM and split across instances
-TOTAL_VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-if [ -n "$TOTAL_VRAM_MB" ] && [ "$NUM_INSTANCES" -gt 1 ]; then
-    VRAM_PER_INSTANCE_MB=$((TOTAL_VRAM_MB / NUM_INSTANCES))
-    VRAM_PER_INSTANCE_BYTES=$((VRAM_PER_INSTANCE_MB * 1048576))
-fi
-
-# Build upstream list for Caddy load balancing
-UPSTREAMS=""
-BASE_PORT=11434
-for i in $(seq 1 "$NUM_INSTANCES"); do
-    PORT=$((BASE_PORT + i - 1))
-    if [ -n "$UPSTREAMS" ]; then
-        UPSTREAMS="${UPSTREAMS} localhost:${PORT}"
-    else
-        UPSTREAMS="localhost:${PORT}"
-    fi
-done
-
-# Generate per-backend handle_path routes for deterministic path-based routing
-BACKEND_ROUTES=""
-for i in $(seq 1 "$NUM_INSTANCES"); do
-    PORT=$((BASE_PORT + i - 1))
-    BACKEND_ROUTES="${BACKEND_ROUTES}
-    handle_path /backend/${i}/* {
-        reverse_proxy localhost:${PORT} {
-            header_up Host localhost:${PORT}
-            flush_interval -1
-        }
-    }"
-done
-
-# Template Caddyfile with internal token, upstreams, and backend routes
+# Template Caddyfile with internal token (single upstream)
 sudo mkdir -p /etc/caddy
-export BACKEND_ROUTES
 curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/caddyfile | \
     sed "s|{{INTERNAL_TOKEN}}|${INTERNAL_TOKEN}|g" | \
-    sed "s|{{UPSTREAMS}}|${UPSTREAMS}|g" | \
-    perl -pe 's/\Q{{BACKEND_ROUTES}}\E/$ENV{BACKEND_ROUTES}/g' | \
     sudo tee /etc/caddy/Caddyfile > /dev/null
 sudo chown caddy:caddy /etc/caddy/Caddyfile
 sudo chmod 644 /etc/caddy/Caddyfile
@@ -206,41 +164,31 @@ rm -f /tmp/internal-token
 sudo mkdir -p /var/log/caddy
 sudo chown caddy:caddy /var/log/caddy
 
-# Disable stock ollama.service — we use numbered instances instead
-sudo systemctl disable ollama.service 2>/dev/null || true
-sudo systemctl stop ollama.service 2>/dev/null || true
-
-# Create ollama-{1..N}.service from stock ollama.service
-for i in $(seq 1 "$NUM_INSTANCES"); do
-    PORT=$((BASE_PORT + i - 1))
-    SVC="ollama-${i}"
-
-    sudo cp /etc/systemd/system/ollama.service "/etc/systemd/system/${SVC}.service" \
-        2>/dev/null || sudo cp /usr/lib/systemd/system/ollama.service "/etc/systemd/system/${SVC}.service"
-
-    sudo mkdir -p "/etc/systemd/system/${SVC}.service.d"
-    sudo tee "/etc/systemd/system/${SVC}.service.d/override.conf" > /dev/null <<ENVEOF
+# Create vLLM systemd service
+VLLM_BIN=$(which vllm)
+sudo tee /etc/systemd/system/vllm.service > /dev/null <<VLLMEOF
 [Unit]
+Description=vLLM Inference Server
 After=private-llm-bootstrap.service
 Requires=private-llm-bootstrap.service
 
 [Service]
-Environment="OLLAMA_HOST=127.0.0.1:${PORT}"
-Environment="OLLAMA_CONTEXT_LENGTH=${CONTEXT_LENGTH}"
-Environment="OLLAMA_NUM_PARALLEL=${NUM_PARALLEL}"
-Environment="OLLAMA_KEEP_ALIVE=-1"
-Environment="OLLAMA_CUDA_GRAPHS=1"
-Environment="OLLAMA_NUM_THREADS=8"
-Environment="OLLAMA_NO_CLOUD=1"
-Environment="OLLAMA_KV_CACHE_TYPE=${KV_CACHE_TYPE}"
-Environment="OLLAMA_NUM_BATCH=${NUM_BATCH}"
-ENVEOF
+Type=simple
+ExecStart=${VLLM_BIN} serve ${MODEL} \
+    --host 127.0.0.1 --port 8000 \
+    --max-model-len ${CONTEXT_LENGTH} \
+    --enable-prefix-caching \
+    --dtype bf16 \
+    --trust-remote-code \
+    --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
-    if [ -n "$VRAM_PER_INSTANCE_BYTES" ]; then
-        echo "Environment=\"OLLAMA_MAX_VRAM=${VRAM_PER_INSTANCE_BYTES}\"" | \
-            sudo tee -a "/etc/systemd/system/${SVC}.service.d/override.conf" > /dev/null
-    fi
-done
+[Install]
+WantedBy=multi-user.target
+VLLMEOF
 
 sudo systemctl daemon-reload
 EOF
@@ -251,7 +199,7 @@ EOF
     sudo tee /etc/systemd/system/private-llm-bootstrap.service > /dev/null <<'EOF'
 [Unit]
 Description=Private LLM Bootstrap (fetch secrets, template configs)
-Before=caddy.service ollama-1.service ollama-2.service ollama-3.service ollama-4.service
+Before=caddy.service vllm.service
 After=network-online.target
 Wants=network-online.target
 
@@ -302,8 +250,9 @@ if [ ! -f "$INSTALL_DIR/.step4-integrity-monitor" ]; then
 BASELINE_FILE="/var/lib/integrity/baseline.txt"
 mkdir -p /var/lib/integrity
 
+VLLM_BIN=$(which vllm 2>/dev/null || echo "/usr/local/bin/vllm")
 > $BASELINE_FILE
-for file in /usr/local/bin/ollama /usr/bin/caddy /usr/local/bin/private-llm-bootstrap.sh; do
+for file in $VLLM_BIN /usr/bin/caddy /usr/local/bin/private-llm-bootstrap.sh; do
     if [ -f "$file" ]; then
         sha256sum "$file" >> $BASELINE_FILE
     fi
@@ -519,16 +468,9 @@ if [ ! -f "$INSTALL_DIR/.step8-start-services" ]; then
     sudo systemctl start private-llm-bootstrap.service
     sudo systemctl daemon-reload
 
-    # Read instance count from metadata
-    NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" \
-        http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
-    NUM_INSTANCES=${NUM_INSTANCES:-1}
-
-    # Enable and start numbered Ollama instances
-    for i in $(seq 1 "$NUM_INSTANCES"); do
-        sudo systemctl enable "ollama-${i}.service"
-        sudo systemctl restart "ollama-${i}.service"
-    done
+    # Enable and start vLLM
+    sudo systemctl enable vllm.service
+    sudo systemctl restart vllm.service
 
     sudo systemctl enable caddy.service
     sudo systemctl restart caddy.service
@@ -536,34 +478,21 @@ if [ ! -f "$INSTALL_DIR/.step8-start-services" ]; then
     sudo systemctl start integrity-monitor.timer
     sudo systemctl start idle-monitor.timer
 
-    # Wait for all Ollama instances to be ready
-    BASE_PORT=11434
-    for i in $(seq 1 "$NUM_INSTANCES"); do
-        PORT=$((BASE_PORT + i - 1))
-        echo "[STEP 8] Waiting for ollama-${i} (port ${PORT}) to be ready..."
-        MAX_RETRIES=60
-        RETRY_COUNT=0
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -s "http://localhost:${PORT}/api/tags" >/dev/null 2>&1; then
-                echo "[STEP 8] ollama-${i} is ready"
-                break
-            fi
-            echo "[STEP 8] Waiting for ollama-${i}... attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
-            sleep 2
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-        done
-        if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            echo "[STEP 8] WARNING: ollama-${i} did not become ready within expected time"
+    # Wait for vLLM to be ready
+    echo "[STEP 8] Waiting for vLLM to be ready..."
+    MAX_RETRIES=120
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if curl -s "http://localhost:8000/health" >/dev/null 2>&1; then
+            echo "[STEP 8] vLLM is ready"
+            break
         fi
+        echo "[STEP 8] Waiting for vLLM... attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+        sleep 5
+        RETRY_COUNT=$((RETRY_COUNT + 1))
     done
-
-    # Pull target model (only needs to happen once — all instances share OLLAMA_MODELS dir)
-    MODEL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
-    if [ -n "$MODEL" ]; then
-        echo "[STEP 8] Pulling target model: $MODEL"
-        (OLLAMA_HOST="127.0.0.1:${BASE_PORT}" ollama pull "$MODEL" && echo "[STEP 8] Target model $MODEL pulled successfully") &
-    else
-        echo "[STEP 8] No target model specified in metadata, skipping model pull"
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+        echo "[STEP 8] WARNING: vLLM did not become ready within expected time"
     fi
 
     touch "$INSTALL_DIR/.step8-start-services"
@@ -575,34 +504,26 @@ touch "$INSTALL_DIR/.installation-complete"
 
 # ============================================
 # Model Warming (runs in background on every boot)
-# Warms each Ollama instance so the model is loaded into VRAM
+# Sends a minimal request to vLLM to load the model into GPU memory
 # ============================================
 (
     MODEL=$(curl -s -H "Metadata-Flavor: Google" \
       http://metadata.google.internal/computeMetadata/v1/instance/attributes/model)
-    NUM_INSTANCES=$(curl -s -H "Metadata-Flavor: Google" \
-      http://metadata.google.internal/computeMetadata/v1/instance/attributes/num-instances)
-    NUM_INSTANCES=${NUM_INSTANCES:-1}
 
-    BASE_PORT=11434
-
-    # Warm target model on each instance (keeps in VRAM with keep_alive=-1)
+    # Wait for vLLM and warm the model
     if [ -n "$MODEL" ]; then
-        for i in $(seq 1 "$NUM_INSTANCES"); do
-            PORT=$((BASE_PORT + i - 1))
-            MAX_RETRIES=30
-            RETRY_COUNT=0
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-                if curl -s "http://localhost:${PORT}/api/tags" >/dev/null 2>&1; then
-                    curl -s -X POST "http://localhost:${PORT}/api/generate" \
-                        -H "Content-Type: application/json" \
-                        -d "{\"model\": \"$MODEL\", \"prompt\": \"hi\", \"stream\": false, \"options\": {\"num_predict\": 1}}" \
-                        >/dev/null 2>&1 || true
-                    break
-                fi
-                sleep 5
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-            done
+        MAX_RETRIES=60
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s "http://localhost:8000/health" >/dev/null 2>&1; then
+                curl -s -X POST "http://localhost:8000/v1/chat/completions" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"model\": \"$MODEL\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}], \"max_tokens\": 1}" \
+                    >/dev/null 2>&1 || true
+                break
+            fi
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT + 1))
         done
     fi
 ) &
